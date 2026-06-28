@@ -1,0 +1,19 @@
+[Unit]
+Description=Green Occasion JMS portal (API + admin UI)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+# Adjust User + paths if you cloned somewhere other than /home/ubuntu.
+User=ubuntu
+WorkingDirectory=/home/ubuntu/greenoccasion-jms
+# The app loads its .env itself (dotenv) from WorkingDirectory.
+ExecStart=/usr/bin/node --import tsx backend/server.ts
+Restart=on-failure
+RestartSec=5
+# Harden a little.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
