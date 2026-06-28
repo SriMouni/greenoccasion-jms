@@ -1,0 +1,65 @@
+{
+  "meta": { "count": 2, "db_response_time_ms": 18, "page": 1, "per_page": 2 },
+  "results": [
+    {
+      "id": "https://openalex.org/W3333333333",
+      "doi": "https://doi.org/10.1000/carbon.003",
+      "title": "Carbon storage monitoring in coastal ecosystems",
+      "publication_year": 2024,
+      "topics": [
+        { "id": "https://openalex.org/T3333333333", "display_name": "Blue Carbon" }
+      ],
+      "primary_location": {
+        "source": {
+          "id": "https://openalex.org/S333",
+          "display_name": "Environmental Monitoring Journal"
+        },
+        "landing_page_url": "https://example.org/carbon-storage-monitoring"
+      },
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "gold",
+        "oa_url": "https://example.org/carbon-storage-monitoring.pdf",
+        "license": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "authorships": [
+        {
+          "author": {
+            "id": "https://openalex.org/A333",
+            "display_name": "Maya Singh"
+          }
+        }
+      ]
+    },
+    {
+      "id": "https://openalex.org/W4444444444",
+      "doi": "https://doi.org/10.1000/carbon.004",
+      "title": "Lifecycle emissions of mineral carbon capture systems",
+      "publication_year": 2025,
+      "topics": [
+        { "id": "https://openalex.org/T4444444444", "display_name": "Carbon Capture and Storage" }
+      ],
+      "primary_location": {
+        "source": {
+          "id": "https://openalex.org/S444",
+          "display_name": "Journal of Industrial Decarbonization"
+        },
+        "landing_page_url": "https://example.org/mineral-carbon-capture"
+      },
+      "open_access": {
+        "is_oa": true,
+        "oa_status": "green",
+        "oa_url": "https://example.org/mineral-carbon-capture.pdf",
+        "license": "unknown"
+      },
+      "authorships": [
+        {
+          "author": {
+            "id": "https://openalex.org/A444",
+            "display_name": "Noah Patel"
+          }
+        }
+      ]
+    }
+  ]
+}

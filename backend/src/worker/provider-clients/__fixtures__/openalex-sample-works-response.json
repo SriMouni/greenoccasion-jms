@@ -1,0 +1,31 @@
+{
+  "meta": { "count": 3, "db_response_time_ms": 24, "page": 1, "per_page": 3 },
+  "results": [
+    {
+      "id": "https://openalex.org/W1111111111",
+      "doi": "https://doi.org/10.1000/carbon.001",
+      "title": "Carbon emission trends in urban energy systems",
+      "publication_year": 2023,
+      "topics": [{ "id": "https://openalex.org/T1234567890", "display_name": "Carbon Emissions" }],
+      "primary_location": {
+        "source": { "id": "https://openalex.org/S111", "display_name": "Climate Policy Journal" },
+        "landing_page_url": "https://example.org/carbon-emission-trends"
+      },
+      "open_access": { "is_oa": true, "oa_status": "gold", "oa_url": "https://example.org/carbon-emission-trends.pdf" },
+      "authorships": [{ "author": { "id": "https://openalex.org/A111", "display_name": "Asha Menon" } }]
+    },
+    {
+      "id": "https://openalex.org/W2222222222",
+      "doi": "https://doi.org/10.1000/carbon.002",
+      "title": "Carbon capture pathways for cement manufacturing",
+      "publication_year": 2022,
+      "topics": [{ "id": "https://openalex.org/T2345678901", "display_name": "Carbon Capture and Storage" }],
+      "primary_location": {
+        "source": { "id": "https://openalex.org/S222", "display_name": "Journal of Cleaner Production" },
+        "landing_page_url": "https://example.org/carbon-capture-cement"
+      },
+      "open_access": { "is_oa": true, "oa_status": "green", "oa_url": "https://example.org/carbon-capture-cement.pdf" },
+      "authorships": [{ "author": { "id": "https://openalex.org/A222", "display_name": "Ravi Kumar" } }]
+    }
+  ]
+}

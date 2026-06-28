@@ -1,0 +1,57 @@
+# Cloud Build configuration for GreenOccasion
+# Project: GreenOccasion | ID: greenoccasion-489916 | Number: 560848062152
+# Trigger: push to main branch
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$BUILD_ID
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
+      - .
+
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}
+
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - ${_SERVICE}
+      - --image
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$BUILD_ID
+      - --region
+      - ${_REGION}
+      - --platform
+      - managed
+      - --allow-unauthenticated
+      - --port
+      - '3001'
+      - --add-cloudsql-instances
+      - ${PROJECT_ID}:${_REGION}:${_CLOUD_SQL_INSTANCE}
+      - --update-env-vars
+      - DB_USER=${_DB_USER},DB_PASSWORD=${_DB_PASSWORD},DB_NAME=${_DB_NAME},DB_HOST=${_DB_HOST},GCS_BUCKET_NAME=${_GCS_BUCKET_NAME},ADMIN_USERNAME=${_ADMIN_USERNAME},ADMIN_PASSWORD=${_ADMIN_PASSWORD}
+images:
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$BUILD_ID
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest
+
+substitutions:
+  _SERVICE: greenoccasion
+  _REGION: us-central1
+  _REPO: greenoccasion
+  _CLOUD_SQL_INSTANCE: greenoccasion-db
+  _DB_USER: postgres
+  _DB_PASSWORD: ""
+  _DB_NAME: library
+  _DB_HOST: 127.0.0.1
+  _GCS_BUCKET_NAME: greenoccasion-library-uploads
+  _ADMIN_USERNAME: admin
+  _ADMIN_PASSWORD: ""
+options:
+  logging: CLOUD_LOGGING_ONLY

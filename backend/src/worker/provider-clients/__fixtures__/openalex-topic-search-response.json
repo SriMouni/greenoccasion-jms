@@ -1,0 +1,26 @@
+{
+  "meta": { "count": 3, "db_response_time_ms": 12, "page": 1, "per_page": 3 },
+  "results": [
+    {
+      "id": "https://openalex.org/T1234567890",
+      "display_name": "Carbon Emissions",
+      "description": "Research about carbon emissions, greenhouse gases, and climate impact.",
+      "works_count": 125000,
+      "keywords": ["carbon emissions", "greenhouse gases", "decarbonization"]
+    },
+    {
+      "id": "https://openalex.org/T2345678901",
+      "display_name": "Carbon Capture and Storage",
+      "description": "Research about capturing, storing, and reusing carbon dioxide.",
+      "works_count": 48000,
+      "keywords": ["carbon capture", "carbon storage", "CCS"]
+    },
+    {
+      "id": "https://openalex.org/T3456789012",
+      "display_name": "Renewable Energy Transition",
+      "description": "Research about replacing fossil fuel energy systems with renewable sources.",
+      "works_count": 86000,
+      "keywords": ["renewable energy", "energy transition", "climate mitigation"]
+    }
+  ]
+}

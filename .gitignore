@@ -1,0 +1,19 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Local PDF storage / downloaded data (backend).
+# Never commit downloaded third-party papers (size + license/rehosting concerns);
+# the ingest jobs re-fetch them. Keep the folder, ignore its contents.
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/papers/
+backend/data/
+
+# Service-account / secrets
+key.json

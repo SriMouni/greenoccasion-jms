@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "frontend-design": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "1a0073004e949e28811a83b2d77dbabfd4cf7bccb4546d3e7c61228a21e1ba59"
+    },
+    "software-architecture": {
+      "source": "sickn33/antigravity-awesome-skills",
+      "sourceType": "github",
+      "computedHash": "87cf49408fdf09614ca9e39e3f2a3e8fd4ff5f628f72f70e142bbaa1c32f046e"
+    },
+    "ui-ux-pro-max": {
+      "source": "zhanlincui/ultimate-agent-skills-collection",
+      "sourceType": "github",
+      "computedHash": "1aa86040f3a5a9469ab1c3aef3716c62a5ebf4c780d461c29ed18e0dae2510b3"
+    }
+  }
+}

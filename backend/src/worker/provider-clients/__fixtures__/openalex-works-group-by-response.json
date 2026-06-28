@@ -1,0 +1,20 @@
+{
+  "meta": { "count": 3, "db_response_time_ms": 18, "page": 1, "per_page": 3 },
+  "group_by": [
+    {
+      "key": "https://openalex.org/T1234567890",
+      "key_display_name": "Carbon Emissions",
+      "count": 15234
+    },
+    {
+      "key": "https://openalex.org/T2345678901",
+      "key_display_name": "Carbon Capture and Storage",
+      "count": 8421
+    },
+    {
+      "key": "https://openalex.org/T3456789012",
+      "key_display_name": "Renewable Energy Transition",
+      "count": 11092
+    }
+  ]
+}
