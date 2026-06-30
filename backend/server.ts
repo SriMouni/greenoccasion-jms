@@ -36,7 +36,10 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+// Reflect the request origin and allow credentials. The frontend sends
+// `credentials: 'include'`, and browsers reject that against a wildcard origin,
+// so we echo the caller's origin instead of returning "*".
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 // Serve locally-stored PDFs (minimal stack: STORAGE_DRIVER=local writes here).
