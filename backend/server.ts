@@ -63,7 +63,41 @@ type AuthenticatedRequest = express.Request & {
 
 const SESSION_COOKIE_NAME = 'ocrl_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 8;
-const sessions = new Map<string, SessionUser>();
+
+// Stateless, signed session token (HMAC). An in-memory Map did not survive process
+// restarts/sleeps (e.g. Render free tier), which logged everyone out on each redeploy.
+// A signed cookie carries the session and is verified by signature + expiry, so
+// sessions persist across restarts with no server-side state.
+const SESSION_SECRET =
+    process.env.SESSION_SECRET ||
+    crypto
+        .createHash('sha256')
+        .update(`${process.env.DB_PASSWORD || ''}:${process.env.ADMIN_PASSWORD || ''}:greenocc-session-v1`)
+        .digest('hex');
+
+const signSession = (payload: SessionUser): string => {
+    const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const sig = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('hex');
+    return `${body}.${sig}`;
+};
+
+const verifySession = (token: string): SessionUser | null => {
+    const dot = token.lastIndexOf('.');
+    if (dot <= 0) return null;
+    const body = token.slice(0, dot);
+    const sig = token.slice(dot + 1);
+    const expected = crypto.createHmac('sha256', SESSION_SECRET).update(body).digest('hex');
+    const sigBuf = Buffer.from(sig);
+    const expBuf = Buffer.from(expected);
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) return null;
+    try {
+        const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as SessionUser;
+        if (!payload.expiresAt || payload.expiresAt <= Date.now()) return null;
+        return payload;
+    } catch {
+        return null;
+    }
+};
 
 const COMMENT_RATE_LIMIT_WINDOW_MS = 1000 * 60 * 5;
 const COMMENT_RATE_LIMIT_MAX = 3;
@@ -175,17 +209,6 @@ const timingSafeCompare = (a: string, b: string) => {
     return crypto.timingSafeEqual(aBuf, bBuf);
 };
 
-const cleanupExpiredSessions = () => {
-    const now = Date.now();
-    for (const [token, session] of sessions.entries()) {
-        if (session.expiresAt <= now) {
-            sessions.delete(token);
-        }
-    }
-};
-
-setInterval(cleanupExpiredSessions, 1000 * 60 * 10);
-
 const requireAuth = (req: AuthenticatedRequest, res: express.Response, next: express.NextFunction) => {
     const cookieMap = parseCookies(req.headers.cookie);
     const token = cookieMap.get(SESSION_COOKIE_NAME);
@@ -193,9 +216,8 @@ const requireAuth = (req: AuthenticatedRequest, res: express.Response, next: exp
         return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const session = sessions.get(token);
-    if (!session || session.expiresAt <= Date.now()) {
-        sessions.delete(token);
+    const session = verifySession(token);
+    if (!session) {
         res.setHeader('Set-Cookie', `${SESSION_COOKIE_NAME}=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax`);
         return res.status(401).json({ error: 'Session expired' });
     }
@@ -355,9 +377,8 @@ app.post('/api/auth/login', async (req, res) => {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
 
-        const token = crypto.randomBytes(32).toString('hex');
         const expiresAt = Date.now() + SESSION_TTL_MS;
-        sessions.set(token, {
+        const token = signSession({
             userId: user.id,
             username: user.username,
             role: user.role,
@@ -379,12 +400,8 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-app.post('/api/auth/logout', (req, res) => {
-    const cookieMap = parseCookies(req.headers.cookie);
-    const token = cookieMap.get(SESSION_COOKIE_NAME);
-    if (token) {
-        sessions.delete(token);
-    }
+app.post('/api/auth/logout', (_req, res) => {
+    // Stateless tokens: clearing the cookie ends the session client-side.
     res.setHeader('Set-Cookie', `${SESSION_COOKIE_NAME}=; HttpOnly; Path=/; Max-Age=0; SameSite=Lax`);
     res.json({ success: true });
 });
