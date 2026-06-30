@@ -1,0 +1,49 @@
+# Render Blueprint — free POC backend for the JMS portal (API + admin UI).
+# Pair with a free Supabase Postgres (set the DB_* vars below in the dashboard).
+#
+# Render auto-detects this file: New > Blueprint > pick the greenoccasion-jms repo.
+# Secrets (sync: false) are entered once in the Render dashboard, never in git.
+services:
+  - type: web
+    name: greenoccasion-jms
+    runtime: node
+    plan: free
+    # --include=dev so the build tools (vite, typescript) install even when the
+    # host sets NODE_ENV=production; tsx is a runtime dep so the server starts.
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/papers
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JOB_RUNNER
+        value: inline
+      - key: GENAI_MODEL
+        value: gemini-2.5-flash
+      # ── Supabase Postgres (use the connection string from Supabase →
+      #    Project Settings → Database; the IPv4 "Session pooler" works from Render).
+      - key: DB_SSL
+        value: "true"
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_HOST
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false
+      # ── App admin bootstrap + provider keys (enter in dashboard) ──
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: GOOGLE_GENAI_API_KEY
+        sync: false
+      - key: SEMANTIC_SCHOLAR_API_KEY
+        sync: false
+      - key: OPENALEX_MAILTO
+        sync: false
+      - key: UNPAYWALL_EMAIL
+        sync: false
