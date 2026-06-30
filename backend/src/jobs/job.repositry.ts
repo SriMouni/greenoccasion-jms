@@ -124,3 +124,26 @@ export const failJob = async (jobId: string, errorText: string) => {
   await appendJobEvent(jobId, 'error', 'Job failed', { errorText });
   return job;
 };
+
+/**
+ * Mark non-terminal jobs (queued/running) as failed. Call once on startup: with the
+ * inline runner, jobs live in the web process, so a restart/redeploy/sleep leaves any
+ * in-flight job stuck as "running" forever. On boot nothing is actually running yet,
+ * so any queued/running row is an orphan from a previous process — fail it so the UI
+ * shows it as interrupted instead of polling a frozen "running" status.
+ */
+export const reapInterruptedJobs = async (): Promise<number> => {
+  const row = (await db.prepare(`
+    SELECT COUNT(*)::int AS n FROM jobs WHERE status IN (?, ?)
+  `).get(JOB_STATUS.QUEUED, JOB_STATUS.RUNNING)) as { n: number } | undefined;
+
+  const n = Number(row?.n || 0);
+  if (n > 0) {
+    await db.prepare(`
+      UPDATE jobs
+      SET status = ?, error_text = COALESCE(error_text, ?), updated_at = now()
+      WHERE status IN (?, ?)
+    `).run(JOB_STATUS.FAILED, 'Interrupted by a server restart', JOB_STATUS.QUEUED, JOB_STATUS.RUNNING);
+  }
+  return n;
+};

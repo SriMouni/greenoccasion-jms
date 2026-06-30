@@ -14,6 +14,7 @@ import {
   getLatestJobEventByJobId,
   getJobById,
   listJobEventsByJobId,
+  reapInterruptedJobs,
 } from './src/jobs/job.repositry.ts';
 import { enqueueJob } from './src/worker/queue.ts';
 import { listSubtopicsByJobId } from './src/discovery/discovery.repository.ts';
@@ -607,6 +608,10 @@ app.get('/api/jobs/:id/events', requireRole(['admin', 'editor']), async (req, re
 
 app.get('/api/jobs/:id/status', requireRole(['admin', 'editor']), async (req, res) => {
     try {
+        // Live status is polled — never let the browser cache it (avoids 304s that
+        // make a progressing job look frozen).
+        res.setHeader('Cache-Control', 'no-store');
+
         const job = await getJobById(req.params.id);
 
         if (!job) {
@@ -1486,6 +1491,14 @@ const startServer = async () => {
     try {
         await schemaReady;
         await ensureDefaultAdminUser();
+
+        // Inline jobs run in this process; a restart/redeploy/sleep can orphan an
+        // in-flight job as "running". Nothing is actually running at boot, so fail
+        // any leftover queued/running jobs instead of letting them poll forever.
+        const reaped = await reapInterruptedJobs();
+        if (reaped > 0) {
+            console.log(`[Jobs] Marked ${reaped} interrupted job(s) as failed on startup.`);
+        }
 
         // Serve the built admin SPA. Vite outputs to <project>/frontend/dist; this file
         // lives in <project>/backend/. The public reading site is a separate project
