@@ -95,22 +95,39 @@ sudo systemctl restart greenoccasion-jms
 
 ---
 
-## Next: HTTPS + domain (needed before the public site can call this API)
+## Next: HTTPS + domain (required — the public site is HTTPS)
 
-A browser on an HTTPS page can't call `http://`. Once the smoke test passes, put
-**Caddy** in front for automatic Let's Encrypt HTTPS and point a subdomain at the VM:
+The public site (GitHub Pages) is served over HTTPS, and a browser on an HTTPS page
+**cannot** call a plain `http://` backend (mixed content is blocked). So once the
+HTTP smoke test passes, add HTTPS via **Caddy** (automatic Let's Encrypt).
 
-1. DNS: `A` record `api.greenoccasion.in → <vm-ip>` (and `admin.greenoccasion.in` if
-   you want the admin UI on its own host). Open ports **80** and **443** in the OCI
-   Security List (step 2) and host firewall.
-2. Install Caddy and use a `Caddyfile` like:
-   ```
-   api.greenoccasion.in {
-       reverse_proxy localhost:3001
-   }
-   ```
-   Caddy fetches and renews TLS automatically.
-3. Rebuild the **public site** (`web/` repo) with `VITE_API_BASE_URL=https://api.greenoccasion.in`
-   and deploy it to GitHub Pages / Cloudflare Pages.
+### 8. Point a subdomain at the VM
+Add a DNS **A record** at wherever `greenoccasion.in` is managed:
+```
+api.greenoccasion.in   ->   <vm-ip>
+```
 
-Ask and I'll generate the `Caddyfile` + DNS/TLS steps when you're ready for this part.
+### 9. Open ports 80 + 443 in the OCI cloud firewall
+VCN → Security List → Add Ingress: Source `0.0.0.0/0`, TCP, ports **80** and **443**
+(same place you opened 3001 in step 2).
+
+### 10. Install Caddy
+```bash
+cd ~/greenoccasion-jms
+DOMAIN=api.greenoccasion.in bash deploy/setup-https.sh
+```
+This installs Caddy, writes `/etc/caddy/Caddyfile` (reverse-proxy → `localhost:3001`),
+opens 80/443 in the host firewall, and starts Caddy. It fetches the TLS cert on the
+first request (~30s). Test:
+```bash
+curl https://api.greenoccasion.in/api/papers
+```
+Now the admin portal is at `https://api.greenoccasion.in/` and the API at `/api`.
+
+### 11. Connect the public site
+In the **greenoccasion-web** repo → Settings → Secrets and variables → Actions →
+**Variables** → add `VITE_API_BASE_URL = https://api.greenoccasion.in`. Then re-run
+the **Deploy to GitHub Pages** workflow. The live site now loads real data.
+
+> Tip: you can keep the `PORT=3001` backend bound only to localhost and let Caddy be
+> the only public listener (close 3001 in the firewalls) for a tidier setup.

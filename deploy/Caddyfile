@@ -1,0 +1,9 @@
+# Caddy reverse proxy -> JMS backend (API + admin UI) on localhost:3001.
+# Caddy automatically obtains and renews a Let's Encrypt TLS certificate.
+#
+# Replace the domain with your backend subdomain. This one host serves BOTH the
+# API (/api, /uploads) and the admin SPA (everything else). You can later split
+# the admin onto its own subdomain if you want.
+api.greenoccasion.in {
+    reverse_proxy localhost:3001
+}
