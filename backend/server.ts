@@ -25,6 +25,7 @@ import { buildLicensePreview } from './src/licenses/license-preview.ts';
 import { classifyField, fieldIcon } from './src/topics/field-classifier.ts';
 import { analyzeAndStorePaper } from './src/ai/analyze-paper.ts';
 import { isAiEnabled } from './src/ai/gemini.ts';
+import { objectStorage } from './src/server/storage/object-storage.ts';
 dotenv.config();
 
 // DB module runs schema initialization
@@ -260,6 +261,9 @@ const bucketCandidates = Array.from(new Set([bucketName, legacyBucketName].filte
 // Only use Google Cloud Storage when explicitly selected. The minimal stack
 // (STORAGE_DRIVER=local, the default) serves PDFs from local disk instead.
 const useGcsStorage = (process.env.STORAGE_DRIVER || 'local').toLowerCase() === 'gcs';
+// S3-compatible object storage (AWS S3, Cloudflare R2, etc.) via the pluggable
+// objectStorage driver. PDFs are served by redirecting to a short-lived signed URL.
+const useS3Storage = (process.env.STORAGE_DRIVER || 'local').toLowerCase() === 's3';
 
 const resolvePdfFromStorage = async (fileName: string): Promise<{ exists: boolean; signedUrl: string | null; bucketName: string | null; }> => {
     if (!useGcsStorage) {
@@ -821,6 +825,9 @@ app.post('/api/licenses/preview', requireRole(['admin', 'editor']), async (req, 
         if (storedPath) {
             const resolvedPdf = await resolvePdfFromStorage(storedPath);
             pdfStored = resolvedPdf.exists || Boolean(resolveLocalPdfPath(storedPath));
+            if (!pdfStored && useS3Storage) {
+                pdfStored = await objectStorage.objectExists(storedPath).catch(() => false);
+            }
         }
 
         // sourceUrl = the external open-access page/PDF (may be a publisher/S3 link).
@@ -916,6 +923,14 @@ app.get('/api/licenses', async (_req, res) => {
         const downloadFileName = getDownloadFileName(paper, storedPath);
 
         if (storedPath) {
+            // S3-compatible storage (e.g. Cloudflare R2): redirect to a short-lived
+            // signed URL so the client streams the PDF straight from the bucket.
+            if (useS3Storage && await objectStorage.objectExists(storedPath).catch(() => false)) {
+                await db.prepare('UPDATE papers SET downloads = downloads + 1 WHERE id = ?').run(req.params.id);
+                const signedUrl = await objectStorage.createSignedReadUrl(storedPath, 300);
+                return res.redirect(signedUrl);
+            }
+
             const resolvedPdf = await resolvePdfFromStorage(storedPath);
 
             if (resolvedPdf.exists && resolvedPdf.bucketName) {
