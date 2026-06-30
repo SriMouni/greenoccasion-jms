@@ -1,5 +1,7 @@
+import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import type { Readable } from "node:stream";
 import {
   GetObjectCommand,
   HeadObjectCommand,
@@ -25,6 +27,7 @@ export interface ObjectStorage {
   uploadBuffer(input: UploadBufferInput): Promise<UploadBufferResult>;
   createSignedReadUrl(key: string, expiresInSeconds?: number): Promise<string>;
   objectExists(key: string): Promise<boolean>;
+  getObjectStream(key: string): Promise<Readable>;
 }
 
 export class S3ObjectStorage implements ObjectStorage {
@@ -80,6 +83,13 @@ export class S3ObjectStorage implements ObjectStorage {
       throw error;
     }
   }
+
+  async getObjectStream(key: string): Promise<Readable> {
+    const result = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    return result.Body as Readable;
+  }
 }
 
 /**
@@ -124,6 +134,10 @@ export class LocalDiskObjectStorage implements ObjectStorage {
     } catch {
       return false;
     }
+  }
+
+  async getObjectStream(key: string): Promise<Readable> {
+    return createReadStream(this.resolveKey(key));
   }
 }
 

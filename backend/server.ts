@@ -923,12 +923,20 @@ app.get('/api/licenses', async (_req, res) => {
         const downloadFileName = getDownloadFileName(paper, storedPath);
 
         if (storedPath) {
-            // S3-compatible storage (e.g. Cloudflare R2): redirect to a short-lived
-            // signed URL so the client streams the PDF straight from the bucket.
+            // S3-compatible storage (Cloudflare R2, Supabase Storage, etc.): stream the
+            // object through the backend. Works on any S3 provider and lets us set the
+            // inline/attachment header (no dependency on presigned-URL support).
             if (useS3Storage && await objectStorage.objectExists(storedPath).catch(() => false)) {
                 await db.prepare('UPDATE papers SET downloads = downloads + 1 WHERE id = ?').run(req.params.id);
-                const signedUrl = await objectStorage.createSignedReadUrl(storedPath, 300);
-                return res.redirect(signedUrl);
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `${disposition}; filename="${downloadFileName}"`);
+                const stream = await objectStorage.getObjectStream(storedPath);
+                stream.on('error', (err: Error) => {
+                    if (!res.headersSent) res.status(500).json({ error: err.message });
+                    else res.destroy(err);
+                });
+                stream.pipe(res);
+                return;
             }
 
             const resolvedPdf = await resolvePdfFromStorage(storedPath);
