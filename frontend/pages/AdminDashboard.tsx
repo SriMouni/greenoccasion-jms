@@ -105,6 +105,8 @@ const SYSTEM_SERVICES = [
 const PUBLIC_SITE = (import.meta.env.VITE_PUBLIC_SITE_URL || '').replace(/\/$/, '');
 
 // Slide-over drawer listing papers by AI status (completed / pending).
+type PaperFilter = 'all' | 'completed' | 'pending';
+
 const PapersDrawer = ({
   papers,
   filter,
@@ -112,13 +114,19 @@ const PapersDrawer = ({
   onClose,
 }: {
   papers: Paper[];
-  filter: 'completed' | 'pending';
-  setFilter: (f: 'completed' | 'pending') => void;
+  filter: PaperFilter;
+  setFilter: (f: PaperFilter) => void;
   onClose: () => void;
 }) => {
   const completed = papers.filter((p) => p.ai_processed_at);
   const pending = papers.filter((p) => !p.ai_processed_at);
-  const list = filter === 'completed' ? completed : pending;
+  const list = filter === 'all' ? papers : filter === 'completed' ? completed : pending;
+
+  const tabs: { key: PaperFilter; label: string; count: number }[] = [
+    { key: 'all', label: 'Approved', count: papers.length },
+    { key: 'completed', label: 'AI Done', count: completed.length },
+    { key: 'pending', label: 'Pending', count: pending.length },
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
@@ -127,7 +135,7 @@ const PapersDrawer = ({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-outline-variant bg-surface-container-lowest px-6 py-4">
-          <h2 className="font-serif text-xl font-bold text-on-surface">AI Analysis by Paper</h2>
+          <h2 className="font-serif text-xl font-bold text-on-surface">Papers</h2>
           <button
             type="button"
             onClick={onClose}
@@ -138,29 +146,21 @@ const PapersDrawer = ({
           </button>
         </div>
 
-        <div className="flex gap-2 px-6 py-4">
-          <button
-            type="button"
-            onClick={() => setFilter('completed')}
-            className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
-              filter === 'completed'
-                ? 'bg-primary text-on-primary'
-                : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
-            }`}
-          >
-            Completed ({completed.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setFilter('pending')}
-            className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
-              filter === 'pending'
-                ? 'bg-primary text-on-primary'
-                : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
-            }`}
-          >
-            Pending ({pending.length})
-          </button>
+        <div className="flex flex-wrap gap-2 px-6 py-4">
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setFilter(t.key)}
+              className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                filter === t.key
+                  ? 'bg-primary text-on-primary'
+                  : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+              }`}
+            >
+              {t.label} ({t.count})
+            </button>
+          ))}
         </div>
 
         <ul className="divide-y divide-outline-variant/60">
@@ -213,7 +213,7 @@ export const AdminDashboard = () => {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [papers, setPapers] = useState<Paper[]>([]);
-  const [paperFilter, setPaperFilter] = useState<'completed' | 'pending' | null>(null);
+  const [paperFilter, setPaperFilter] = useState<PaperFilter | null>(null);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiStarting, setAiStarting] = useState(false);
   const [pdfStarting, setPdfStarting] = useState(false);
@@ -284,12 +284,18 @@ export const AdminDashboard = () => {
   const stats: StatCard[] = [
     { label: 'Active Jobs', value: activeJobs, icon: Activity },
     { label: 'Pending Approvals', value: pendingCount, icon: Inbox },
-    { label: 'Approved Papers', value: approvedCount, icon: FileCheck },
+    {
+      label: 'Approved Papers',
+      value: approvedCount,
+      icon: FileCheck,
+      hint: approvedCount > 0 ? 'click to view' : undefined,
+      onClick: () => setPaperFilter('all'),
+    },
     {
       label: 'AI Processed',
       value: `${aiCompleted} / ${approvedCount}`,
       icon: Sparkles,
-      hint: approvedCount === 0 ? undefined : aiPending > 0 ? `${aiPending} pending — click to view` : 'all done',
+      hint: approvedCount === 0 ? undefined : aiPending > 0 ? `${aiPending} pending — click` : 'all done — click',
       onClick: () => setPaperFilter(aiPending > 0 ? 'pending' : 'completed'),
     },
   ];
