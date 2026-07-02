@@ -49,7 +49,7 @@ const uploadsDir = path.resolve(process.env.PDF_STORAGE_DIR || path.join(process
 fs.mkdirSync(uploadsDir, { recursive: true });
 app.use('/uploads', express.static(uploadsDir));
 
-type AppRole = 'admin' | 'editor';
+type AppRole = 'admin' | 'editor' | 'author' | 'reviewer';
 
 type SessionUser = {
     userId: string;
@@ -1485,6 +1485,266 @@ app.post('/api/jobs/ingest-papers', requireRole(['admin', 'editor']), async (req
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Editorial workflow: self-registered authors → submissions → peer review →
+// editor decision → publish. Roles: author, reviewer, editor, admin.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const newId = (prefix: string) => `${prefix}_${crypto.randomUUID()}`;
+
+const setSessionCookie = (
+    res: express.Response,
+    user: { userId: string; username: string; role: AppRole }
+) => {
+    const expiresAt = Date.now() + SESSION_TTL_MS;
+    const token = signSession({ userId: user.userId, username: user.username, role: user.role, expiresAt });
+    const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    res.setHeader(
+        'Set-Cookie',
+        `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; HttpOnly; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}; SameSite=Lax${secure}`
+    );
+};
+
+// Self-registration — creates an author account and logs in.
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { fullName, email, password } = req.body || {};
+        if (!email || !password || String(password).length < 6) {
+            return res.status(400).json({ error: 'Email and a password (min 6 chars) are required.' });
+        }
+        const username = String(email).trim().toLowerCase();
+        const existing = await db.prepare('SELECT id FROM app_users WHERE username = ?').get(username);
+        if (existing) return res.status(409).json({ error: 'An account with this email already exists.' });
+
+        const salt = crypto.randomBytes(16).toString('hex');
+        const passwordHash = hashPassword(String(password), salt);
+        const userId = newId('U');
+        await db.prepare(`
+          INSERT INTO app_users (id, username, password_hash, password_salt, role, full_name, email)
+          VALUES (?, ?, ?, ?, 'author', ?, ?)
+        `).run(userId, username, passwordHash, salt, fullName || null, username);
+
+        setSessionCookie(res, { userId, username, role: 'author' });
+        res.json({ user: { id: userId, username, role: 'author', fullName: fullName || null } });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Author: create a submission (optional manuscript upload).
+app.post('/api/submissions', requireRole(['author', 'editor', 'admin']), upload.single('manuscript'), async (req: AuthenticatedRequest, res) => {
+    try {
+        const { title, abstract, keywords, authors } = req.body || {};
+        if (!title || !abstract) return res.status(400).json({ error: 'Title and abstract are required.' });
+
+        let authorsJson: any[] = [];
+        try { authorsJson = authors ? (typeof authors === 'string' ? JSON.parse(authors) : authors) : []; } catch { authorsJson = []; }
+
+        const submissionId = newId('sub');
+        let manuscriptPath: string | null = null;
+        if (req.file) {
+            const safe = req.file.originalname.replace(/[^\w.\-]/g, '_');
+            const key = `submissions/${submissionId}/${safe}`;
+            await objectStorage.uploadBuffer({ key, body: req.file.buffer, contentType: req.file.mimetype || 'application/pdf' });
+            manuscriptPath = key;
+        }
+
+        await db.prepare(`
+          INSERT INTO submissions (id, title, abstract, keywords, authors_json, author_user_id, manuscript_path, status)
+          VALUES (?, ?, ?, ?, ?::jsonb, ?, ?, 'submitted')
+        `).run(submissionId, title, abstract, keywords || null, JSON.stringify(authorsJson), req.authUser!.userId, manuscriptPath);
+
+        res.json({ id: submissionId });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Author: my submissions.
+app.get('/api/submissions/mine', requireRole(['author', 'editor', 'admin']), async (req: AuthenticatedRequest, res) => {
+    try {
+        const rows = await db.prepare(`
+          SELECT s.*,
+            (SELECT COUNT(*)::int FROM submission_reviews sr WHERE sr.submission_id = s.id) AS review_count
+          FROM submissions s WHERE s.author_user_id = ? ORDER BY s.created_at DESC
+        `).all(req.authUser!.userId);
+        res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Submission detail (author-owner or staff). Authors see comments-to-author only.
+app.get('/api/submissions/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+        const sub = await db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id) as any;
+        if (!sub) return res.status(404).json({ error: 'Not found' });
+        const role = req.authUser!.role;
+        const isOwner = sub.author_user_id === req.authUser!.userId;
+        const isStaff = role === 'editor' || role === 'admin';
+        if (!isOwner && !isStaff) return res.status(403).json({ error: 'Forbidden' });
+
+        const reviews = await db.prepare(`
+          SELECT id, recommendation, comments_to_author${isStaff ? ', comments_to_editor, reviewer_user_id' : ''}, created_at
+          FROM submission_reviews WHERE submission_id = ? ORDER BY created_at
+        `).all(req.params.id);
+        res.json({ ...sub, reviews });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Manuscript download (owner, assigned reviewer, or staff).
+app.get('/api/submissions/:id/manuscript', requireAuth, async (req: AuthenticatedRequest, res) => {
+    try {
+        const sub = await db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id) as any;
+        if (!sub || !sub.manuscript_path) return res.status(404).json({ error: 'No manuscript' });
+        const role = req.authUser!.role;
+        const isOwner = sub.author_user_id === req.authUser!.userId;
+        const isStaff = role === 'editor' || role === 'admin';
+        let isReviewer = false;
+        if (role === 'reviewer') {
+            const a = await db.prepare('SELECT id FROM review_assignments WHERE submission_id = ? AND reviewer_user_id = ?').get(req.params.id, req.authUser!.userId);
+            isReviewer = Boolean(a);
+        }
+        if (!isOwner && !isStaff && !isReviewer) return res.status(403).json({ error: 'Forbidden' });
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'inline; filename="manuscript.pdf"');
+        const stream = await objectStorage.getObjectStream(sub.manuscript_path);
+        stream.on('error', (e: Error) => { if (!res.headersSent) res.status(500).json({ error: e.message }); else res.destroy(e); });
+        stream.pipe(res);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Editor: submissions queue.
+app.get('/api/editor/submissions', requireRole(['editor', 'admin']), async (_req, res) => {
+    try {
+        const rows = await db.prepare(`
+          SELECT s.*, u.full_name AS author_name, u.email AS author_email,
+            (SELECT COUNT(*)::int FROM review_assignments ra WHERE ra.submission_id = s.id) AS assigned_count,
+            (SELECT COUNT(*)::int FROM submission_reviews sr WHERE sr.submission_id = s.id) AS review_count
+          FROM submissions s JOIN app_users u ON u.id = s.author_user_id
+          ORDER BY s.created_at DESC
+        `).all();
+        res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Editor: reviewers available to assign.
+app.get('/api/editor/reviewers', requireRole(['editor', 'admin']), async (_req, res) => {
+    try {
+        const rows = await db.prepare(`SELECT id, username, full_name, email FROM app_users WHERE role = 'reviewer' ORDER BY full_name NULLS LAST, username`).all();
+        res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Editor: assign a reviewer to a submission.
+app.post('/api/editor/submissions/:id/assign', requireRole(['editor', 'admin']), async (req: AuthenticatedRequest, res) => {
+    try {
+        const { reviewerUserId } = req.body || {};
+        if (!reviewerUserId) return res.status(400).json({ error: 'reviewerUserId required' });
+        const sub = await db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id) as any;
+        if (!sub) return res.status(404).json({ error: 'Not found' });
+
+        await db.prepare(`
+          INSERT INTO review_assignments (id, submission_id, reviewer_user_id, round, assigned_by)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT (submission_id, reviewer_user_id, round) DO NOTHING
+        `).run(newId('asg'), req.params.id, reviewerUserId, sub.round, req.authUser!.userId);
+
+        if (sub.status === 'submitted') {
+            await db.prepare(`UPDATE submissions SET status = 'under_review', updated_at = now() WHERE id = ?`).run(req.params.id);
+        }
+        res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Editor: decision. accept -> publish to the public library.
+app.post('/api/editor/submissions/:id/decision', requireRole(['editor', 'admin']), async (req: AuthenticatedRequest, res) => {
+    try {
+        const { decision, note } = req.body || {};
+        if (!['accept', 'reject', 'minor', 'major'].includes(decision)) return res.status(400).json({ error: 'Invalid decision' });
+        const sub = await db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id) as any;
+        if (!sub) return res.status(404).json({ error: 'Not found' });
+
+        const status = decision === 'accept' ? 'accepted' : decision === 'reject' ? 'rejected' : 'revisions_requested';
+        await db.prepare(`UPDATE submissions SET decision = ?, decision_note = ?, status = ?, updated_at = now() WHERE id = ?`)
+            .run(decision, note || null, status, req.params.id);
+
+        if (decision === 'accept') {
+            const paperId = newId('paper');
+            const topic = String(sub.keywords || '').split(',')[0]?.trim() || 'General Submission';
+            await db.prepare(`
+              INSERT INTO papers (id, title, abstract, topic, file_path, status)
+              VALUES (?, ?, ?, ?, ?, 'approved')
+            `).run(paperId, sub.title, sub.abstract, topic, sub.manuscript_path || '');
+
+            let authorsJson: any[] = [];
+            try { authorsJson = sub.authors_json ? (typeof sub.authors_json === 'string' ? JSON.parse(sub.authors_json) : sub.authors_json) : []; } catch { /* ignore */ }
+            if (!authorsJson.length) {
+                const u = await db.prepare('SELECT full_name, email FROM app_users WHERE id = ?').get(sub.author_user_id) as any;
+                if (u?.full_name) authorsJson = [{ name: u.full_name, email: u.email, affiliation: '' }];
+            }
+            for (const a of authorsJson) {
+                if (!a?.name) continue;
+                const authorId = newId('author');
+                await db.prepare('INSERT INTO authors (id, name, institution, email) VALUES (?, ?, ?, ?)')
+                    .run(authorId, a.name, a.affiliation || '', a.email || '');
+                await db.prepare('INSERT INTO paper_authors (paper_id, author_id) VALUES (?, ?) ON CONFLICT DO NOTHING')
+                    .run(paperId, authorId);
+            }
+            await db.prepare(`UPDATE submissions SET status = 'published', published_paper_id = ?, updated_at = now() WHERE id = ?`)
+                .run(paperId, req.params.id);
+        }
+        res.json({ ok: true, status });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Reviewer: my assignments.
+app.get('/api/reviewer/assignments', requireRole(['reviewer', 'editor', 'admin']), async (req: AuthenticatedRequest, res) => {
+    try {
+        const rows = await db.prepare(`
+          SELECT ra.id AS assignment_id, ra.status AS assignment_status, ra.created_at,
+                 s.id AS submission_id, s.title, s.abstract, s.status AS submission_status,
+                 (SELECT COUNT(*)::int FROM submission_reviews sr WHERE sr.assignment_id = ra.id) AS reviewed
+          FROM review_assignments ra JOIN submissions s ON s.id = ra.submission_id
+          WHERE ra.reviewer_user_id = ? ORDER BY ra.created_at DESC
+        `).all(req.authUser!.userId);
+        res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Reviewer: submit a review.
+app.post('/api/reviewer/assignments/:id/review', requireRole(['reviewer', 'editor', 'admin']), async (req: AuthenticatedRequest, res) => {
+    try {
+        const { recommendation, commentsToAuthor, commentsToEditor } = req.body || {};
+        if (!['accept', 'minor', 'major', 'reject'].includes(recommendation)) return res.status(400).json({ error: 'Invalid recommendation' });
+        const asg = await db.prepare('SELECT * FROM review_assignments WHERE id = ?').get(req.params.id) as any;
+        if (!asg) return res.status(404).json({ error: 'Assignment not found' });
+        if (req.authUser!.role === 'reviewer' && asg.reviewer_user_id !== req.authUser!.userId) {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+        await db.prepare(`
+          INSERT INTO submission_reviews (id, assignment_id, submission_id, reviewer_user_id, recommendation, comments_to_author, comments_to_editor)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(newId('rev'), asg.id, asg.submission_id, req.authUser!.userId, recommendation, commentsToAuthor || null, commentsToEditor || null);
+        await db.prepare(`UPDATE review_assignments SET status = 'completed' WHERE id = ?`).run(asg.id);
+        res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Admin: user + role management (promote authors to reviewer/editor).
+app.get('/api/admin/users', requireRole(['admin']), async (_req, res) => {
+    try {
+        const rows = await db.prepare('SELECT id, username, full_name, email, role, created_at FROM app_users ORDER BY created_at DESC').all();
+        res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/admin/users/:id/role', requireRole(['admin']), async (req, res) => {
+    try {
+        const { role } = req.body || {};
+        if (!['admin', 'editor', 'reviewer', 'author'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+        await db.prepare('UPDATE app_users SET role = ? WHERE id = ?').run(role, req.params.id);
+        res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 const startServer = async () => {

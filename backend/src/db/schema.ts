@@ -463,6 +463,54 @@ CREATE TABLE IF NOT EXISTS author_contacts (
 );
 CREATE INDEX IF NOT EXISTS author_contacts_author_idx
   ON author_contacts (author_id);
+
+-- ── Editorial workflow: self-registered authors, submissions, peer review ──
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS full_name TEXT;
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS email TEXT;
+
+CREATE TABLE IF NOT EXISTS submissions (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  abstract TEXT NOT NULL,
+  keywords TEXT,
+  authors_json JSONB,                       -- co-authors: [{name,email,affiliation}]
+  author_user_id TEXT NOT NULL REFERENCES app_users(id),
+  manuscript_path TEXT,                     -- uploaded file (storage key)
+  status TEXT NOT NULL DEFAULT 'submitted', -- submitted|under_review|revisions_requested|accepted|rejected|published
+  decision TEXT,                            -- accept|minor|major|reject
+  decision_note TEXT,
+  round INTEGER NOT NULL DEFAULT 1,
+  published_paper_id TEXT,                  -- papers.id once published
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS submissions_author_idx ON submissions(author_user_id);
+CREATE INDEX IF NOT EXISTS submissions_status_idx ON submissions(status);
+
+CREATE TABLE IF NOT EXISTS review_assignments (
+  id TEXT PRIMARY KEY,
+  submission_id TEXT NOT NULL REFERENCES submissions(id),
+  reviewer_user_id TEXT NOT NULL REFERENCES app_users(id),
+  round INTEGER NOT NULL DEFAULT 1,
+  status TEXT NOT NULL DEFAULT 'assigned',  -- assigned|completed|declined
+  assigned_by TEXT REFERENCES app_users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (submission_id, reviewer_user_id, round)
+);
+CREATE INDEX IF NOT EXISTS review_assignments_reviewer_idx ON review_assignments(reviewer_user_id);
+CREATE INDEX IF NOT EXISTS review_assignments_submission_idx ON review_assignments(submission_id);
+
+CREATE TABLE IF NOT EXISTS submission_reviews (
+  id TEXT PRIMARY KEY,
+  assignment_id TEXT NOT NULL REFERENCES review_assignments(id),
+  submission_id TEXT NOT NULL REFERENCES submissions(id),
+  reviewer_user_id TEXT NOT NULL REFERENCES app_users(id),
+  recommendation TEXT NOT NULL,             -- accept|minor|major|reject
+  comments_to_author TEXT,
+  comments_to_editor TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS submission_reviews_submission_idx ON submission_reviews(submission_id);
     `);
     console.log("PostgreSQL database initialized with schema.");
   } catch (err: any) {
