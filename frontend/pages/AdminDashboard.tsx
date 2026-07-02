@@ -12,6 +12,7 @@ import {
   Plus,
   Sparkles,
   TrendingUp,
+  X,
 } from 'lucide-react';
 
 type Job = {
@@ -25,10 +26,20 @@ type Job = {
   updated_at: string;
 };
 
+type Paper = {
+  id: string;
+  title: string;
+  field_label?: string | null;
+  ai_field?: string | null;
+  ai_processed_at?: string | null;
+};
+
 type StatCard = {
   label: string;
-  value: number;
+  value: number | string;
   icon: typeof Briefcase;
+  hint?: string;
+  onClick?: () => void;
 };
 
 const JOB_TYPE_LABELS: Record<string, string> = {
@@ -90,11 +101,119 @@ const SYSTEM_SERVICES = [
   { name: 'Local File Storage', status: 'Operational' },
 ];
 
+// Public site origin (for linking to a paper). Set VITE_PUBLIC_SITE_URL in the build.
+const PUBLIC_SITE = (import.meta.env.VITE_PUBLIC_SITE_URL || '').replace(/\/$/, '');
+
+// Slide-over drawer listing papers by AI status (completed / pending).
+const PapersDrawer = ({
+  papers,
+  filter,
+  setFilter,
+  onClose,
+}: {
+  papers: Paper[];
+  filter: 'completed' | 'pending';
+  setFilter: (f: 'completed' | 'pending') => void;
+  onClose: () => void;
+}) => {
+  const completed = papers.filter((p) => p.ai_processed_at);
+  const pending = papers.filter((p) => !p.ai_processed_at);
+  const list = filter === 'completed' ? completed : pending;
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
+      <div
+        className="h-full w-full max-w-lg overflow-y-auto bg-surface-container-lowest shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-outline-variant bg-surface-container-lowest px-6 py-4">
+          <h2 className="font-serif text-xl font-bold text-on-surface">AI Analysis by Paper</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-md p-1.5 text-on-surface-variant hover:bg-surface-container"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex gap-2 px-6 py-4">
+          <button
+            type="button"
+            onClick={() => setFilter('completed')}
+            className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+              filter === 'completed'
+                ? 'bg-primary text-on-primary'
+                : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+            }`}
+          >
+            Completed ({completed.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilter('pending')}
+            className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+              filter === 'pending'
+                ? 'bg-primary text-on-primary'
+                : 'bg-surface-container text-on-surface-variant hover:bg-surface-container-high'
+            }`}
+          >
+            Pending ({pending.length})
+          </button>
+        </div>
+
+        <ul className="divide-y divide-outline-variant/60">
+          {list.length === 0 ? (
+            <li className="px-6 py-10 text-center font-serif italic text-on-surface-variant">
+              No papers in this state.
+            </li>
+          ) : (
+            list.map((p) => (
+              <li key={p.id} className="px-6 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    {PUBLIC_SITE ? (
+                      <a
+                        href={`${PUBLIC_SITE}/paper/${p.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="line-clamp-2 text-sm font-semibold text-on-surface hover:text-primary"
+                      >
+                        {p.title}
+                      </a>
+                    ) : (
+                      <span className="line-clamp-2 text-sm font-semibold text-on-surface">{p.title}</span>
+                    )}
+                    <p className="mt-0.5 text-xs text-on-surface-variant">
+                      {p.field_label || p.ai_field || '—'}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      p.ai_processed_at
+                        ? 'bg-secondary-container text-on-secondary-container'
+                        : 'bg-surface-container-high text-on-surface-variant'
+                    }`}
+                  >
+                    {p.ai_processed_at ? 'AI ✓' : 'pending'}
+                  </span>
+                </div>
+              </li>
+            ))
+          )}
+        </ul>
+      </div>
+    </div>
+  );
+};
+
 export const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
-  const [approvedCount, setApprovedCount] = useState(0);
+  const [papers, setPapers] = useState<Paper[]>([]);
+  const [paperFilter, setPaperFilter] = useState<'completed' | 'pending' | null>(null);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiStarting, setAiStarting] = useState(false);
   const [pdfStarting, setPdfStarting] = useState(false);
@@ -139,12 +258,12 @@ export const AdminDashboard = () => {
     const [jobsData, pending, approved] = await Promise.all([
       fetchJson<Job>('/api/jobs?limit=20'),
       fetchJson<unknown>('/api/admin/pending'),
-      fetchJson<unknown>('/api/papers'),
+      fetchJson<Paper>('/api/papers'),
     ]);
     const aiStatus = await fetch('/api/ai/status').then((r) => r.json()).catch(() => ({ enabled: false }));
     setJobs(jobsData);
     setPendingCount(pending.length);
-    setApprovedCount(approved.length);
+    setPapers(approved);
     setAiEnabled(Boolean(aiStatus?.enabled));
     setLoading(false);
   }, []);
@@ -158,11 +277,21 @@ export const AdminDashboard = () => {
     (job) => job.status === 'running' || job.status === 'queued'
   ).length;
 
+  const approvedCount = papers.length;
+  const aiCompleted = papers.filter((p) => p.ai_processed_at).length;
+  const aiPending = approvedCount - aiCompleted;
+
   const stats: StatCard[] = [
     { label: 'Active Jobs', value: activeJobs, icon: Activity },
     { label: 'Pending Approvals', value: pendingCount, icon: Inbox },
     { label: 'Approved Papers', value: approvedCount, icon: FileCheck },
-    { label: 'Total Jobs', value: jobs.length, icon: Briefcase },
+    {
+      label: 'AI Processed',
+      value: `${aiCompleted} / ${approvedCount}`,
+      icon: Sparkles,
+      hint: approvedCount === 0 ? undefined : aiPending > 0 ? `${aiPending} pending — click to view` : 'all done',
+      onClick: () => setPaperFilter(aiPending > 0 ? 'pending' : 'completed'),
+    },
   ];
 
   return (
@@ -191,7 +320,12 @@ export const AdminDashboard = () => {
           return (
             <div
               key={stat.label}
-              className="rounded-lg border border-outline-variant bg-surface-container-lowest p-5 shadow-[0px_4px_20px_rgba(45,45,45,0.05)]"
+              onClick={stat.onClick}
+              role={stat.onClick ? 'button' : undefined}
+              tabIndex={stat.onClick ? 0 : undefined}
+              className={`rounded-lg border border-outline-variant bg-surface-container-lowest p-5 shadow-[0px_4px_20px_rgba(45,45,45,0.05)] ${
+                stat.onClick ? 'cursor-pointer hover:border-primary hover:shadow-md transition-all' : ''
+              }`}
             >
               <div className="flex items-center justify-between">
                 <p className="text-[11px] uppercase tracking-[0.14em] font-semibold text-on-surface-variant">
@@ -202,6 +336,9 @@ export const AdminDashboard = () => {
               <p className="mt-3 font-serif text-4xl font-bold text-primary">
                 {loading ? '—' : stat.value}
               </p>
+              {stat.hint && !loading && (
+                <p className="mt-1 text-xs font-semibold text-on-surface-variant">{stat.hint}</p>
+              )}
             </div>
           );
         })}
@@ -251,13 +388,21 @@ export const AdminDashboard = () => {
                 ) : (
                   jobs.map((job) => (
                     <tr key={job.id} className="hover:bg-surface-container-low transition-colors">
-                      <td className="px-6 py-4 font-mono text-xs text-on-surface-variant" title={job.id}>
+                      <td className="px-6 py-4 font-mono text-xs text-on-surface-variant align-top" title={job.id}>
                         {shortId(job.id)}
                       </td>
-                      <td className="px-6 py-4 font-semibold text-on-surface">
+                      <td className="px-6 py-4 font-semibold text-on-surface align-top">
                         {humanizeJobType(job.type)}
+                        {job.status === 'failed' && job.error_text && (
+                          <div
+                            className="mt-0.5 max-w-[240px] truncate text-xs font-normal text-error"
+                            title={job.error_text}
+                          >
+                            {job.error_text}
+                          </div>
+                        )}
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-6 py-4 align-top">
                         <span
                           className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${
                             STATUS_BADGE[job.status] ?? 'bg-surface-container-high text-on-surface-variant'
@@ -271,7 +416,7 @@ export const AdminDashboard = () => {
                           {job.status}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-on-surface-variant">
+                      <td className="px-6 py-4 text-on-surface-variant align-top">
                         {formatRelative(job.updated_at || job.created_at)}
                       </td>
                     </tr>
@@ -329,7 +474,8 @@ export const AdminDashboard = () => {
               <h2 className="text-sm font-bold uppercase tracking-[0.12em] text-on-surface">AI Analysis</h2>
             </div>
             <p className="text-sm text-on-surface-variant mb-4">
-              Generate summaries, highlights and field classification for un-analyzed papers.
+              {aiCompleted} of {approvedCount} papers analyzed
+              {aiPending > 0 ? ` · ${aiPending} pending.` : ' · all done.'}
               {aiEnabled ? '' : ' (Set GOOGLE_GENAI_API_KEY to enable.)'}
             </p>
             <button
@@ -401,6 +547,15 @@ export const AdminDashboard = () => {
             <JobEventsPanel jobId={enrichJobId} title="Author Enrichment Job" onDone={refresh} />
           )}
         </div>
+      )}
+
+      {paperFilter && (
+        <PapersDrawer
+          papers={papers}
+          filter={paperFilter}
+          setFilter={setPaperFilter}
+          onClose={() => setPaperFilter(null)}
+        />
       )}
     </div>
   );

@@ -121,7 +121,15 @@ export const AdminJobsPage = () => {
                       {job.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-on-surface-variant">{resultSummary(job)}</td>
+                  <td className="px-6 py-4 text-on-surface-variant">
+                    {job.status === 'failed' && job.error_text ? (
+                      <span className="text-error" title={job.error_text}>
+                        {job.error_text.length > 70 ? `${job.error_text.slice(0, 70)}…` : job.error_text}
+                      </span>
+                    ) : (
+                      resultSummary(job)
+                    )}
+                  </td>
                   <td className="px-6 py-4 text-on-surface-variant whitespace-nowrap">{formatDate(job.created_at)}</td>
                 </tr>
               ))
