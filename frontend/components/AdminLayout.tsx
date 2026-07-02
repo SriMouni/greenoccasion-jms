@@ -5,11 +5,13 @@ import {
   Compass,
   ExternalLink,
   History,
+  Inbox,
   LayoutDashboard,
   LifeBuoy,
   LogOut,
   Plus,
   Settings,
+  Users,
 } from 'lucide-react';
 
 type NavItem = {
@@ -22,9 +24,11 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/admin', icon: LayoutDashboard, end: true },
+  { label: 'Submissions', to: '/admin/submissions', icon: Inbox },
   { label: 'Discovery', to: '/admin/collection', icon: Compass },
   { label: 'Jobs', to: '/admin/jobs', icon: History },
   { label: 'Review Queue', to: '/admin/review', icon: ClipboardCheck },
+  { label: 'Users', to: '/admin/users', icon: Users },
   { label: 'Author Intelligence', to: '/admin', icon: BrainCircuit, disabled: true },
 ];
 

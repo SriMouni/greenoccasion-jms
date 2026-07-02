@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ShieldCheck } from 'lucide-react';
+import { homeForRole } from '../lib/portal';
 
 export const AdminLoginPage = () => {
   const navigate = useNavigate();
@@ -26,7 +27,8 @@ export const AdminLoginPage = () => {
         throw new Error(payload.error || 'Login failed');
       }
 
-      navigate('/admin', { replace: true });
+      const data = await response.json().catch(() => ({}));
+      navigate(homeForRole(data?.user?.role), { replace: true });
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {
@@ -41,8 +43,8 @@ export const AdminLoginPage = () => {
           <div className="w-14 h-14 rounded-full bg-primary text-neutral mx-auto flex items-center justify-center">
             <ShieldCheck className="w-7 h-7" />
           </div>
-          <h1 className="text-4xl font-serif italic">Admin Sign In</h1>
-          <p className="text-sm text-muted">Authorized editors only</p>
+          <h1 className="text-4xl font-serif italic">Sign In</h1>
+          <p className="text-sm text-muted">Authors, reviewers &amp; editors</p>
         </div>
 
         <form onSubmit={onSubmit} className="space-y-5">
@@ -81,6 +83,13 @@ export const AdminLoginPage = () => {
             {loading ? 'Signing In...' : 'Sign In'}
           </button>
         </form>
+
+        <p className="text-center text-sm text-muted">
+          New author?{' '}
+          <Link to="/admin/register" className="font-semibold text-primary hover:underline">
+            Create an account
+          </Link>
+        </p>
 
         <div className="text-center">
           <a href={import.meta.env.VITE_PUBLIC_SITE_URL || '/'} className="text-xs uppercase tracking-[0.14em] font-semibold text-muted hover:text-primary">
