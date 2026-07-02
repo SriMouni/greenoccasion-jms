@@ -105,28 +105,40 @@ const SYSTEM_SERVICES = [
 const PUBLIC_SITE = (import.meta.env.VITE_PUBLIC_SITE_URL || '').replace(/\/$/, '');
 
 // Slide-over drawer listing papers by AI status (completed / pending).
-type PaperFilter = 'all' | 'completed' | 'pending';
+type PaperFilter = 'review' | 'all' | 'completed' | 'pending';
 
 const PapersDrawer = ({
-  papers,
+  approved,
+  pendingApprovals,
   filter,
   setFilter,
   onClose,
 }: {
-  papers: Paper[];
+  approved: Paper[];
+  pendingApprovals: Paper[];
   filter: PaperFilter;
   setFilter: (f: PaperFilter) => void;
   onClose: () => void;
 }) => {
-  const completed = papers.filter((p) => p.ai_processed_at);
-  const pending = papers.filter((p) => !p.ai_processed_at);
-  const list = filter === 'all' ? papers : filter === 'completed' ? completed : pending;
+  const completed = approved.filter((p) => p.ai_processed_at);
+  const pendingAi = approved.filter((p) => !p.ai_processed_at);
 
   const tabs: { key: PaperFilter; label: string; count: number }[] = [
-    { key: 'all', label: 'Approved', count: papers.length },
+    { key: 'review', label: 'Awaiting Review', count: pendingApprovals.length },
+    { key: 'all', label: 'Approved', count: approved.length },
     { key: 'completed', label: 'AI Done', count: completed.length },
-    { key: 'pending', label: 'Pending', count: pending.length },
+    { key: 'pending', label: 'Pending AI', count: pendingAi.length },
   ];
+
+  const isReview = filter === 'review';
+  const list =
+    filter === 'review'
+      ? pendingApprovals
+      : filter === 'all'
+        ? approved
+        : filter === 'completed'
+          ? completed
+          : pendingAi;
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/40" onClick={onClose}>
@@ -163,6 +175,18 @@ const PapersDrawer = ({
           ))}
         </div>
 
+        {isReview && pendingApprovals.length > 0 && (
+          <div className="px-6 pb-2">
+            <Link
+              to="/admin/review"
+              onClick={onClose}
+              className="text-xs font-bold text-primary hover:text-primary-dark"
+            >
+              Open Review Queue →
+            </Link>
+          </div>
+        )}
+
         <ul className="divide-y divide-outline-variant/60">
           {list.length === 0 ? (
             <li className="px-6 py-10 text-center font-serif italic text-on-surface-variant">
@@ -173,7 +197,7 @@ const PapersDrawer = ({
               <li key={p.id} className="px-6 py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    {PUBLIC_SITE ? (
+                    {!isReview && PUBLIC_SITE ? (
                       <a
                         href={`${PUBLIC_SITE}/paper/${p.id}`}
                         target="_blank"
@@ -189,15 +213,21 @@ const PapersDrawer = ({
                       {p.field_label || p.ai_field || '—'}
                     </p>
                   </div>
-                  <span
-                    className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                      p.ai_processed_at
-                        ? 'bg-secondary-container text-on-secondary-container'
-                        : 'bg-surface-container-high text-on-surface-variant'
-                    }`}
-                  >
-                    {p.ai_processed_at ? 'AI ✓' : 'pending'}
-                  </span>
+                  {isReview ? (
+                    <span className="shrink-0 rounded-full bg-error-container px-2 py-0.5 text-[10px] font-bold text-on-error-container">
+                      review
+                    </span>
+                  ) : (
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                        p.ai_processed_at
+                          ? 'bg-secondary-container text-on-secondary-container'
+                          : 'bg-surface-container-high text-on-surface-variant'
+                      }`}
+                    >
+                      {p.ai_processed_at ? 'AI ✓' : 'pending'}
+                    </span>
+                  )}
                 </div>
               </li>
             ))
@@ -212,6 +242,7 @@ export const AdminDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
+  const [pendingPapers, setPendingPapers] = useState<Paper[]>([]);
   const [papers, setPapers] = useState<Paper[]>([]);
   const [paperFilter, setPaperFilter] = useState<PaperFilter | null>(null);
   const [aiEnabled, setAiEnabled] = useState(false);
@@ -257,12 +288,13 @@ export const AdminDashboard = () => {
   const refresh = useCallback(async () => {
     const [jobsData, pending, approved] = await Promise.all([
       fetchJson<Job>('/api/jobs?limit=20'),
-      fetchJson<unknown>('/api/admin/pending'),
+      fetchJson<Paper>('/api/admin/pending'),
       fetchJson<Paper>('/api/papers'),
     ]);
     const aiStatus = await fetch('/api/ai/status').then((r) => r.json()).catch(() => ({ enabled: false }));
     setJobs(jobsData);
     setPendingCount(pending.length);
+    setPendingPapers(pending);
     setPapers(approved);
     setAiEnabled(Boolean(aiStatus?.enabled));
     setLoading(false);
@@ -283,7 +315,13 @@ export const AdminDashboard = () => {
 
   const stats: StatCard[] = [
     { label: 'Active Jobs', value: activeJobs, icon: Activity },
-    { label: 'Pending Approvals', value: pendingCount, icon: Inbox },
+    {
+      label: 'Pending Approvals',
+      value: pendingCount,
+      icon: Inbox,
+      hint: pendingCount > 0 ? 'click to view' : undefined,
+      onClick: () => setPaperFilter('review'),
+    },
     {
       label: 'Approved Papers',
       value: approvedCount,
@@ -557,7 +595,8 @@ export const AdminDashboard = () => {
 
       {paperFilter && (
         <PapersDrawer
-          papers={papers}
+          approved={papers}
+          pendingApprovals={pendingPapers}
           filter={paperFilter}
           setFilter={setPaperFilter}
           onClose={() => setPaperFilter(null)}
