@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import type { Role } from './portal';
 
-export type NavItem = { label: string; to: string; icon: LucideIcon; end?: boolean };
+export type NavItem = { label: string; to: string; icon: LucideIcon; end?: boolean; group?: string };
 
 /** Left-nav items per role. Authors/reviewers get a focused set; editors/admins the console. */
 export const navForRole = (role: Role): NavItem[] => {
@@ -33,16 +33,17 @@ export const navForRole = (role: Role): NavItem[] => {
       ];
     case 'admin':
     default:
+      // Grouped by workflow: overview → scrape content → publish → account.
       return [
         { label: 'Dashboard', to: '/admin', icon: LayoutDashboard, end: true },
-        { label: 'Journals', to: '/admin/journals', icon: BookOpen },
-        { label: 'Staging', to: '/admin/staging', icon: Database },
-        { label: 'Submissions', to: '/admin/submissions', icon: Inbox },
-        { label: 'Discovery', to: '/admin/collection', icon: Compass },
-        { label: 'Jobs', to: '/admin/jobs', icon: History },
-        { label: 'Review Queue', to: '/admin/review', icon: ClipboardList },
-        { label: 'Users', to: '/admin/users', icon: Users },
-        { label: 'Settings', to: '/admin/settings', icon: Settings },
+        { label: 'Discovery', to: '/admin/collection', icon: Compass, group: 'Content' },
+        { label: 'Jobs', to: '/admin/jobs', icon: History, group: 'Content' },
+        { label: 'Review Queue', to: '/admin/review', icon: ClipboardList, group: 'Content' },
+        { label: 'Staging', to: '/admin/staging', icon: Database, group: 'Content' },
+        { label: 'Journals', to: '/admin/journals', icon: BookOpen, group: 'Publishing' },
+        { label: 'Submissions', to: '/admin/submissions', icon: Inbox, group: 'Publishing' },
+        { label: 'Users', to: '/admin/users', icon: Users, group: 'Account' },
+        { label: 'Settings', to: '/admin/settings', icon: Settings, group: 'Account' },
       ];
   }
 };

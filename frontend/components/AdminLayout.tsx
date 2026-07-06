@@ -1,5 +1,6 @@
+import { Fragment } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { ExternalLink, LogOut, Plus } from 'lucide-react';
+import { ExternalLink, LogOut } from 'lucide-react';
 import { useAuth } from '../lib/portal';
 import { navForRole, ROLE_LABEL } from '../lib/nav';
 import { Logo } from './Logo';
@@ -35,29 +36,25 @@ export const AdminLayout = () => {
           <Logo size={30} subtitle={ROLE_LABEL[role]} />
         </div>
 
-        {/* Nav */}
-        <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-5">
-          {items.map((item) => {
+        {/* Nav — grouped by functionality */}
+        <nav className="flex-1 space-y-0.5 overflow-y-auto px-4 py-5">
+          {items.map((item, i) => {
             const Icon = item.icon;
+            const showHeader = item.group && item.group !== items[i - 1]?.group;
             return (
-              <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => navLinkClasses(isActive)}>
-                <Icon className="h-5 w-5 shrink-0" />
-                <span>{item.label}</span>
-              </NavLink>
+              <Fragment key={item.to}>
+                {showHeader && (
+                  <p className="px-4 pb-1 pt-4 text-[10px] font-bold uppercase tracking-[0.14em] text-on-surface-variant/60">
+                    {item.group}
+                  </p>
+                )}
+                <NavLink to={item.to} end={item.end} className={({ isActive }) => navLinkClasses(isActive)}>
+                  <Icon className="h-5 w-5 shrink-0" />
+                  <span>{item.label}</span>
+                </NavLink>
+              </Fragment>
             );
           })}
-
-          {role === 'admin' && (
-            <div className="pt-4">
-              <NavLink
-                to="/admin/collection"
-                className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-3 text-sm font-bold text-on-primary transition-colors hover:bg-primary-dark"
-              >
-                <Plus className="h-4 w-4" />
-                New Discovery Job
-              </NavLink>
-            </div>
-          )}
         </nav>
 
       </aside>
