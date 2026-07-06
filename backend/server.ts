@@ -2032,6 +2032,47 @@ app.get('/api/journal-site', async (req, res) => {
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// Hard-delete a paper and its dependents (no ON DELETE CASCADE in the schema).
+const deletePaperCascade = async (paperId: string) => {
+    await db.prepare('DELETE FROM paper_comment_moderation_logs WHERE paper_id = ?').run(paperId);
+    await db.prepare('DELETE FROM paper_comments WHERE paper_id = ?').run(paperId);
+    await db.prepare('DELETE FROM reviews WHERE paper_id = ?').run(paperId);
+    await db.prepare('DELETE FROM paper_authors WHERE paper_id = ?').run(paperId);
+    await db.prepare('DELETE FROM paper_versions WHERE paper_id = ?').run(paperId);
+    await db.prepare('DELETE FROM papers WHERE id = ?').run(paperId);
+};
+
+// Change a paper's topic and/or journal (admin). journalId '' or null => staging.
+app.patch('/api/admin/papers/:id', requireRole(['admin']), async (req, res) => {
+    try {
+        const { topic, journalId } = req.body || {};
+        const paper = await db.prepare('SELECT id FROM papers WHERE id = ?').get(req.params.id);
+        if (!paper) return res.status(404).json({ error: 'Paper not found' });
+        if (typeof topic === 'string' && topic.trim()) {
+            await db.prepare('UPDATE papers SET topic = ? WHERE id = ?').run(topic.trim(), req.params.id);
+        }
+        if (journalId !== undefined) {
+            const jid = journalId ? String(journalId) : null;
+            if (jid) {
+                const j = await db.prepare('SELECT id FROM journals WHERE id = ?').get(jid);
+                if (!j) return res.status(400).json({ error: 'Target journal not found' });
+            }
+            await db.prepare('UPDATE papers SET journal_id = ? WHERE id = ?').run(jid, req.params.id);
+        }
+        res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Delete a single paper (admin).
+app.delete('/api/admin/papers/:id', requireRole(['admin']), async (req, res) => {
+    try {
+        const paper = await db.prepare('SELECT id FROM papers WHERE id = ?').get(req.params.id);
+        if (!paper) return res.status(404).json({ error: 'Paper not found' });
+        await deletePaperCascade(req.params.id);
+        res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Journals (multi-journal foundation) ──
 const slugify = (s: string) =>
     String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'journal';
@@ -2193,6 +2234,18 @@ app.put('/api/journals/:id/topics/rename', requireRole(['admin']), async (req, r
         `).run(newId('topic'), to, slugify(to), req.params.id);
 
         res.json({ ok: true, moved });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Delete a topic within a journal AND its papers (admin).
+app.delete('/api/journals/:id/topics', requireRole(['admin']), async (req, res) => {
+    try {
+        const topic = String(req.body?.topic || '').trim();
+        if (!topic) return res.status(400).json({ error: 'topic is required' });
+        const rows = await db.prepare('SELECT id FROM papers WHERE journal_id = ? AND topic = ?').all(req.params.id, topic) as any[];
+        for (const row of rows) await deletePaperCascade(row.id);
+        await db.prepare('DELETE FROM topics WHERE journal_id = ? AND name = ?').run(req.params.id, topic);
+        res.json({ ok: true, deleted: rows.length });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
