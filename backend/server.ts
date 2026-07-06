@@ -23,7 +23,14 @@ import {
     listLicenses,
 } from './src/licenses/licenses.repository.ts';
 import { buildLicensePreview } from './src/licenses/license-preview.ts';
-import { classifyField, fieldIcon } from './src/topics/field-classifier.ts';
+import { classifyField, fieldIcon, OTHER_FIELD } from './src/topics/field-classifier.ts';
+
+// Prefer a confident AI field; treat the generic "Other" bucket as unclassified and
+// fall back to the topic's own name (keeps non-green journals from collapsing to "Other").
+const effectiveField = (aiField: string | null | undefined, topic: string | null | undefined): string => {
+    const ai = (aiField || '').trim();
+    return ai && ai !== OTHER_FIELD ? ai : classifyField(topic);
+};
 import { analyzeAndStorePaper } from './src/ai/analyze-paper.ts';
 import { isAiEnabled } from './src/ai/gemini.ts';
 import { objectStorage } from './src/server/storage/object-storage.ts';
@@ -327,6 +334,24 @@ const upload = multer({
     }
 });
 
+// Manuscript submissions accept PDF/DOC/DOCX for the main file and any type for
+// supplementary datasets/figures. Field-scoped so the manuscript stays a document.
+const MANUSCRIPT_MIME = new Set([
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
+const submissionMulter = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 25 * 1024 * 1024, files: 12 },
+    fileFilter: (req, file, cb) => {
+        if (file.fieldname === 'manuscript' && !MANUSCRIPT_MIME.has(file.mimetype)) {
+            return cb(new Error('Manuscript must be a PDF or Word document.'));
+        }
+        cb(null, true);
+    },
+});
+
 app.post('/api/admin/cleanup', requireRole(['admin']), async (req, res) => {
     try {
         const result = await db.transaction(async () => {
@@ -520,7 +545,7 @@ const citationText = (paper: any, style: string) => {
 
     return `${author} (${year}). ${title}. ${journal}.${doi}`;
 };
-app.post('/api/jobs/discover-subtopics', requireRole(['admin', 'editor']), async (req, res) => {
+app.post('/api/jobs/discover-subtopics', requireRole(['admin']), async (req, res) => {
     try {
         const topicText = typeof req.body?.topicText === 'string'
             ? req.body.topicText.trim()
@@ -555,7 +580,7 @@ app.post('/api/jobs/discover-subtopics', requireRole(['admin', 'editor']), async
         res.status(500).json({ error: err.message });
     }
 });
-app.get('/api/subtopics', requireRole(['admin', 'editor']), async (req, res) => {
+app.get('/api/subtopics', requireRole(['admin']), async (req, res) => {
     try {
         const jobId = typeof req.query.jobId === 'string'
             ? req.query.jobId.trim()
@@ -579,7 +604,7 @@ app.get('/api/subtopics', requireRole(['admin', 'editor']), async (req, res) => 
 });
 
 // Recent jobs list for the admin dashboard / jobs view.
-app.get('/api/jobs', requireRole(['admin', 'editor']), async (req, res) => {
+app.get('/api/jobs', requireRole(['admin']), async (req, res) => {
     try {
         const limit = Math.min(Math.max(Number(req.query.limit) || 20, 1), 100);
         const jobs = await db.prepare(`
@@ -595,7 +620,7 @@ app.get('/api/jobs', requireRole(['admin', 'editor']), async (req, res) => {
 });
 
 // Full event timeline for a job (what was processed, item by item).
-app.get('/api/jobs/:id/events', requireRole(['admin', 'editor']), async (req, res) => {
+app.get('/api/jobs/:id/events', requireRole(['admin']), async (req, res) => {
     try {
         const job = await getJobById(req.params.id);
         if (!job) return res.status(404).json({ error: 'Job not found' });
@@ -606,7 +631,7 @@ app.get('/api/jobs/:id/events', requireRole(['admin', 'editor']), async (req, re
     }
 });
 
-app.get('/api/jobs/:id/status', requireRole(['admin', 'editor']), async (req, res) => {
+app.get('/api/jobs/:id/status', requireRole(['admin']), async (req, res) => {
     try {
         // Live status is polled — never let the browser cache it (avoids 304s that
         // make a progressing job look frozen).
@@ -639,7 +664,7 @@ app.get('/api/jobs/:id/status', requireRole(['admin', 'editor']), async (req, re
 
 // Get all papers (approved). Enriched with source/license/field for public filtering.
 app.get('/api/papers', async (req, res) => {
-    const { search, topic, field } = req.query;
+    const { search, topic, field, journal } = req.query;
     let query = `
     SELECT p.*,
            STRING_AGG(DISTINCT a.name, ', ') as author_names,
@@ -655,6 +680,15 @@ app.get('/api/papers', async (req, res) => {
     WHERE p.status = 'approved'
   `;
     const params: string[] = [];
+
+    // Per-journal serving: a journal front-end passes ?journal=<slug>; each site only
+    // ever sees its own scoped papers. Without a slug, exclude unmapped (staging) papers.
+    if (journal) {
+        query += ` AND p.journal_id = (SELECT id FROM journals WHERE slug = ?)`;
+        params.push(journal as string);
+    } else {
+        query += ` AND p.journal_id IS NOT NULL`;
+    }
 
     if (topic) {
         query += ` AND p.topic = ?`;
@@ -675,7 +709,7 @@ app.get('/api/papers', async (req, res) => {
         // Attach the effective broad field (AI-assigned, else keyword guess).
         papers = papers.map((p) => ({
             ...p,
-            field_label: (p.ai_field && String(p.ai_field).trim()) || classifyField(p.topic),
+            field_label: effectiveField(p.ai_field, p.topic),
         }));
 
         if (field) {
@@ -692,7 +726,7 @@ app.get('/api/ai/status', (_req, res) => {
     res.json({ enabled: isAiEnabled() });
 });
 
-app.post('/api/admin/paper/:id/analyze', requireRole(['admin', 'editor']), async (req, res) => {
+app.post('/api/admin/paper/:id/analyze', requireRole(['admin']), async (req, res) => {
     try {
         if (!isAiEnabled()) {
             return res.status(503).json({ error: 'AI is not configured. Set GOOGLE_GENAI_API_KEY.' });
@@ -708,7 +742,7 @@ app.post('/api/admin/paper/:id/analyze', requireRole(['admin', 'editor']), async
 });
 
 // Run AI analysis as a background job (progress + per-paper events).
-app.post('/api/admin/ai/analyze-pending', requireRole(['admin', 'editor']), async (req, res) => {
+app.post('/api/admin/ai/analyze-pending', requireRole(['admin']), async (req, res) => {
     try {
         if (!isAiEnabled()) {
             return res.status(503).json({ error: 'AI is not configured. Set GOOGLE_GENAI_API_KEY.' });
@@ -726,7 +760,7 @@ app.post('/api/admin/ai/analyze-pending', requireRole(['admin', 'editor']), asyn
 });
 
 // Re-attempt PDF downloads for metadata-only papers as a background job.
-app.post('/api/admin/papers/backfill-pdfs', requireRole(['admin', 'editor']), async (req, res) => {
+app.post('/api/admin/papers/backfill-pdfs', requireRole(['admin']), async (req, res) => {
     try {
         const limit = Math.min(Math.max(Number(req.body?.limit) || 25, 1), 200);
         const job = await createJob({
@@ -741,18 +775,24 @@ app.post('/api/admin/papers/backfill-pdfs', requireRole(['admin', 'editor']), as
 });
 
 // Broad fields: the many granular topics grouped into a handful of domains.
-app.get('/api/topics', async (_req, res) => {
+app.get('/api/topics', async (req, res) => {
     try {
+        // Journal-scoped for per-journal front-ends; without a slug, exclude staging.
+        const journal = req.query.journal as string | undefined;
+        const scope = journal
+            ? ' AND p.journal_id = (SELECT id FROM journals WHERE slug = ?)'
+            : ' AND p.journal_id IS NOT NULL';
+        const params = journal ? [journal] : [];
         // Per-paper rows so we can prefer the AI-assigned field over the keyword guess.
         const rows = await db.prepare(`
             SELECT p.topic AS topic, p.ai_field AS ai_field
             FROM papers p
-            WHERE p.status = 'approved' AND p.topic IS NOT NULL AND p.topic <> ''
-        `).all() as Array<{ topic: string; ai_field: string | null }>;
+            WHERE p.status = 'approved' AND p.topic IS NOT NULL AND p.topic <> ''${scope}
+        `).all(...params) as Array<{ topic: string; ai_field: string | null }>;
 
         const groups = new Map<string, { field: string; icon: string; paper_count: number; topics: Set<string> }>();
         for (const row of rows) {
-            const field = (row.ai_field && row.ai_field.trim()) || classifyField(row.topic);
+            const field = effectiveField(row.ai_field, row.topic);
             const existing = groups.get(field) ?? { field, icon: fieldIcon(field), paper_count: 0, topics: new Set<string>() };
             existing.paper_count += 1;
             existing.topics.add(row.topic);
@@ -768,7 +808,7 @@ app.get('/api/topics', async (_req, res) => {
     }
 });
 
-app.post('/api/licenses/preview', requireRole(['admin', 'editor']), async (req, res) => {
+app.post('/api/licenses/preview', requireRole(['admin']), async (req, res) => {
     try {
         const discoveryJobId = typeof req.body?.discoveryJobId === 'string'
             ? req.body.discoveryJobId.trim()
@@ -1235,7 +1275,7 @@ app.post('/api/submit-paper', upload.single('pdfFile'), async (req, res) => {
 });
 
 // Admin Review Endpoints
-app.get('/api/admin/pending', requireRole(['admin', 'editor']), async (req, res) => {
+app.get('/api/admin/pending', requireRole(['admin']), async (req, res) => {
     try {
         const stmt = db.prepare(`
        SELECT p.*, STRING_AGG(a.name, ', ') as author_names
@@ -1253,7 +1293,7 @@ app.get('/api/admin/pending', requireRole(['admin', 'editor']), async (req, res)
     }
 });
 
-app.post('/api/admin/review', requireRole(['admin', 'editor']), async (req, res) => {
+app.post('/api/admin/review', requireRole(['admin']), async (req, res) => {
     const { paperId, status } = req.body;
     if (!['approved', 'rejected'].includes(status)) {
         return res.status(400).json({ error: 'Invalid status update.' });
@@ -1280,7 +1320,7 @@ app.post('/api/admin/review', requireRole(['admin', 'editor']), async (req, res)
     }
 });
 
-app.get('/api/admin/comments/pending', requireRole(['admin', 'editor']), async (req, res) => {
+app.get('/api/admin/comments/pending', requireRole(['admin']), async (req, res) => {
     try {
         const comments = await db.prepare(`
             SELECT c.id, c.paper_id, c.commenter_name, c.body, c.created_at, p.title
@@ -1296,7 +1336,7 @@ app.get('/api/admin/comments/pending', requireRole(['admin', 'editor']), async (
     }
 });
 
-app.post('/api/admin/comments/:id/moderate', requireRole(['admin', 'editor']), async (req: AuthenticatedRequest, res) => {
+app.post('/api/admin/comments/:id/moderate', requireRole(['admin']), async (req: AuthenticatedRequest, res) => {
     try {
         const { action, note } = req.body || {};
         if (!['approved', 'rejected'].includes(action)) {
@@ -1379,19 +1419,30 @@ app.get('/api/author/:name', async (req, res) => {
 });
 
 // Authors directory with publication counts + enrichment status.
-app.get('/api/authors', async (_req, res) => {
+app.get('/api/authors', async (req, res) => {
     try {
+        // Journal-scoped author directory. Resolve the slug to an id once, then reuse.
+        const journal = req.query.journal as string | undefined;
+        let jid: string | null = null;
+        if (journal) {
+            const j = await db.prepare('SELECT id FROM journals WHERE slug = ?').get(journal) as any;
+            jid = j?.id ?? '__none__';
+        }
+        const cond = jid
+            ? "p.status = 'approved' AND p.journal_id = ?"
+            : "p.status = 'approved' AND p.journal_id IS NOT NULL";
+        const params = jid ? [jid, jid] : [];
         const rows = await db.prepare(`
             SELECT a.id, a.name, a.institution, a.orcid, a.enrichment_status,
                    a.enrichment_confidence, a.works_count,
-                   COUNT(DISTINCT pa.paper_id) FILTER (WHERE p.status = 'approved') AS publication_count
+                   COUNT(DISTINCT pa.paper_id) FILTER (WHERE ${cond}) AS publication_count
             FROM authors a
             LEFT JOIN paper_authors pa ON pa.author_id = a.id
             LEFT JOIN papers p ON p.id = pa.paper_id
             GROUP BY a.id
-            HAVING COUNT(DISTINCT pa.paper_id) FILTER (WHERE p.status = 'approved') > 0
+            HAVING COUNT(DISTINCT pa.paper_id) FILTER (WHERE ${cond}) > 0
             ORDER BY publication_count DESC, a.name ASC
-        `).all();
+        `).all(...params);
         res.json(rows);
     } catch (err: any) {
         res.status(500).json({ error: err.message });
@@ -1399,7 +1450,7 @@ app.get('/api/authors', async (_req, res) => {
 });
 
 // Start an author enrichment background job (ORCID/ROR via OpenAlex).
-app.post('/api/admin/authors/enrich', requireRole(['admin', 'editor']), async (req, res) => {
+app.post('/api/admin/authors/enrich', requireRole(['admin']), async (req, res) => {
     try {
         const limit = Math.min(Math.max(Number(req.body?.limit) || 50, 1), 200);
         const job = await createJob({
@@ -1412,7 +1463,7 @@ app.post('/api/admin/authors/enrich', requireRole(['admin', 'editor']), async (r
         res.status(500).json({ error: err.message });
     }
 });
-   app.get('/api/jobs/:id/skipped-records', requireRole(['admin', 'editor']), async (req, res) => {
+   app.get('/api/jobs/:id/skipped-records', requireRole(['admin']), async (req, res) => {
   try {
     const job = await getJobById(req.params.id);
 
@@ -1443,7 +1494,7 @@ app.post('/api/admin/authors/enrich', requireRole(['admin', 'editor']), async (r
     res.status(500).json({ error: err.message });
   }
 });
-app.post('/api/jobs/ingest-papers', requireRole(['admin', 'editor']), async (req, res) => {
+app.post('/api/jobs/ingest-papers', requireRole(['admin']), async (req, res) => {
   try {
     const discoveryJobId = typeof req.body?.discoveryJobId === 'string'
       ? req.body.discoveryJobId.trim()
@@ -1510,10 +1561,12 @@ const setSessionCookie = (
 // Self-registration — creates an author account and logs in.
 app.post('/api/auth/register', async (req, res) => {
     try {
-        const { fullName, email, password } = req.body || {};
+        const { fullName, email, password, role } = req.body || {};
         if (!email || !password || String(password).length < 6) {
             return res.status(400).json({ error: 'Email and a password (min 6 chars) are required.' });
         }
+        // Self-registration is limited to author or reviewer; editor/admin are granted by an admin.
+        const requestedRole: AppRole = role === 'reviewer' ? 'reviewer' : 'author';
         const username = String(email).trim().toLowerCase();
         const existing = await db.prepare('SELECT id FROM app_users WHERE username = ?').get(username);
         if (existing) return res.status(409).json({ error: 'An account with this email already exists.' });
@@ -1523,40 +1576,117 @@ app.post('/api/auth/register', async (req, res) => {
         const userId = newId('U');
         await db.prepare(`
           INSERT INTO app_users (id, username, password_hash, password_salt, role, full_name, email)
-          VALUES (?, ?, ?, ?, 'author', ?, ?)
-        `).run(userId, username, passwordHash, salt, fullName || null, username);
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(userId, username, passwordHash, salt, requestedRole, fullName || null, username);
 
-        setSessionCookie(res, { userId, username, role: 'author' });
-        res.json({ user: { id: userId, username, role: 'author', fullName: fullName || null } });
+        setSessionCookie(res, { userId, username, role: requestedRole });
+        res.json({ user: { id: userId, username, role: requestedRole, fullName: fullName || null } });
     } catch (err: any) {
         res.status(500).json({ error: err.message });
     }
 });
 
 // Author: create a submission (optional manuscript upload).
-app.post('/api/submissions', requireRole(['author', 'editor', 'admin']), upload.single('manuscript'), async (req: AuthenticatedRequest, res) => {
+const submissionUpload = submissionMulter.fields([
+    { name: 'manuscript', maxCount: 1 },
+    { name: 'supplementary', maxCount: 10 },
+]);
+
+// Upload one file buffer under a submission's storage prefix; returns the key.
+const storeSubmissionFile = async (submissionId: string, version: number, kind: string, f: any) => {
+    const safe = String(f.originalname || 'file').replace(/[^\w.\-]/g, '_');
+    const key = `submissions/${submissionId}/v${version}/${kind}-${safe}`;
+    await objectStorage.uploadBuffer({ key, body: f.buffer, contentType: f.mimetype || 'application/octet-stream' });
+    return key;
+};
+
+app.post('/api/submissions', requireRole(['author', 'editor', 'admin']), submissionUpload, async (req: AuthenticatedRequest, res) => {
     try {
-        const { title, abstract, keywords, authors } = req.body || {};
+        const { title, abstract, keywords, authors, articleType, coverLetter, declarations } = req.body || {};
         if (!title || !abstract) return res.status(400).json({ error: 'Title and abstract are required.' });
 
-        let authorsJson: any[] = [];
-        try { authorsJson = authors ? (typeof authors === 'string' ? JSON.parse(authors) : authors) : []; } catch { authorsJson = []; }
+        let authorList: any[] = [];
+        try { authorList = authors ? (typeof authors === 'string' ? JSON.parse(authors) : authors) : []; } catch { authorList = []; }
+        authorList = authorList.filter((a) => (a?.firstName || a?.lastName || a?.name || '').trim());
+
+        let declarationsObj: any = {};
+        try { declarationsObj = declarations ? (typeof declarations === 'string' ? JSON.parse(declarations) : declarations) : {}; } catch { declarationsObj = {}; }
+
+        const files = (req.files || {}) as Record<string, any[]>;
+        const manuscriptFile = files.manuscript?.[0];
+        if (!manuscriptFile) return res.status(400).json({ error: 'A main manuscript file is required.' });
 
         const submissionId = newId('sub');
-        let manuscriptPath: string | null = null;
-        if (req.file) {
-            const safe = req.file.originalname.replace(/[^\w.\-]/g, '_');
-            const key = `submissions/${submissionId}/${safe}`;
-            await objectStorage.uploadBuffer({ key, body: req.file.buffer, contentType: req.file.mimetype || 'application/pdf' });
-            manuscriptPath = key;
+        const manuscriptPath = await storeSubmissionFile(submissionId, 1, 'manuscript', manuscriptFile);
+        const supplementary: { name: string; key: string }[] = [];
+        for (const f of files.supplementary || []) {
+            supplementary.push({ name: f.originalname, key: await storeSubmissionFile(submissionId, 1, 'supp', f) });
+        }
+
+        // Keep authors_json populated for backward-compat with the publish path.
+        const legacyAuthors = authorList.map((a) => ({
+            name: [a.firstName, a.lastName].filter(Boolean).join(' ') || a.name || '',
+            email: a.email || '', affiliation: a.affiliation || '',
+        }));
+
+        await db.prepare(`
+          INSERT INTO submissions (id, title, abstract, keywords, authors_json, author_user_id, manuscript_path,
+            status, article_type, cover_letter, declarations, current_version)
+          VALUES (?, ?, ?, ?, ?::jsonb, ?, ?, 'submitted', ?, ?, ?::jsonb, 1)
+        `).run(submissionId, title, abstract, keywords || null, JSON.stringify(legacyAuthors), req.authUser!.userId,
+            manuscriptPath, articleType || null, coverLetter || null, JSON.stringify(declarationsObj));
+
+        await db.prepare(`
+          INSERT INTO submission_versions (id, submission_id, version, manuscript_path, supplementary_json)
+          VALUES (?, ?, 1, ?, ?::jsonb)
+        `).run(newId('ver'), submissionId, manuscriptPath, JSON.stringify(supplementary));
+
+        let order = 0;
+        for (const a of authorList) {
+            await db.prepare(`
+              INSERT INTO submission_authors (id, submission_id, author_order, first_name, last_name, email, affiliation, orcid, is_corresponding)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(newId('sau'), submissionId, order++, a.firstName || null, a.lastName || null,
+                a.email || null, a.affiliation || null, a.orcid || null, Boolean(a.isCorresponding));
+        }
+
+        res.json({ id: submissionId });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Author: upload a revised version (response-to-reviewers) when revisions were requested.
+app.post('/api/submissions/:id/revise', requireRole(['author', 'editor', 'admin']), submissionUpload, async (req: AuthenticatedRequest, res) => {
+    try {
+        const sub = await db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id) as any;
+        if (!sub) return res.status(404).json({ error: 'Not found' });
+        const isOwner = sub.author_user_id === req.authUser!.userId;
+        const isStaff = req.authUser!.role === 'editor' || req.authUser!.role === 'admin';
+        if (!isOwner && !isStaff) return res.status(403).json({ error: 'Forbidden' });
+        if (sub.status !== 'revisions_requested') return res.status(400).json({ error: 'This submission is not awaiting a revision.' });
+
+        const files = (req.files || {}) as Record<string, any[]>;
+        const manuscriptFile = files.manuscript?.[0];
+        if (!manuscriptFile) return res.status(400).json({ error: 'A revised manuscript file is required.' });
+
+        const nextVersion = (sub.current_version || 1) + 1;
+        const nextRound = (sub.round || 1) + 1;
+        const manuscriptPath = await storeSubmissionFile(req.params.id, nextVersion, 'manuscript', manuscriptFile);
+        const supplementary: { name: string; key: string }[] = [];
+        for (const f of files.supplementary || []) {
+            supplementary.push({ name: f.originalname, key: await storeSubmissionFile(req.params.id, nextVersion, 'supp', f) });
         }
 
         await db.prepare(`
-          INSERT INTO submissions (id, title, abstract, keywords, authors_json, author_user_id, manuscript_path, status)
-          VALUES (?, ?, ?, ?, ?::jsonb, ?, ?, 'submitted')
-        `).run(submissionId, title, abstract, keywords || null, JSON.stringify(authorsJson), req.authUser!.userId, manuscriptPath);
+          INSERT INTO submission_versions (id, submission_id, version, manuscript_path, supplementary_json, response_to_reviewers)
+          VALUES (?, ?, ?, ?, ?::jsonb, ?)
+        `).run(newId('ver'), req.params.id, nextVersion, manuscriptPath, JSON.stringify(supplementary), req.body?.responseToReviewers || null);
 
-        res.json({ id: submissionId });
+        await db.prepare(`
+          UPDATE submissions SET manuscript_path = ?, current_version = ?, round = ?, status = 'submitted',
+            decision = NULL, updated_at = now() WHERE id = ?
+        `).run(manuscriptPath, nextVersion, nextRound, req.params.id);
+
+        res.json({ ok: true, version: nextVersion });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1572,7 +1702,7 @@ app.get('/api/submissions/mine', requireRole(['author', 'editor', 'admin']), asy
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// Submission detail (author-owner or staff). Authors see comments-to-author only.
+// Submission detail. Owner + staff see everything; an assigned reviewer sees a blinded copy.
 app.get('/api/submissions/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
     try {
         const sub = await db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id) as any;
@@ -1580,13 +1710,64 @@ app.get('/api/submissions/:id', requireAuth, async (req: AuthenticatedRequest, r
         const role = req.authUser!.role;
         const isOwner = sub.author_user_id === req.authUser!.userId;
         const isStaff = role === 'editor' || role === 'admin';
-        if (!isOwner && !isStaff) return res.status(403).json({ error: 'Forbidden' });
+        let isReviewer = false;
+        if (role === 'reviewer') {
+            const a = await db.prepare('SELECT id FROM review_assignments WHERE submission_id = ? AND reviewer_user_id = ?').get(req.params.id, req.authUser!.userId);
+            isReviewer = Boolean(a);
+        }
+        if (!isOwner && !isStaff && !isReviewer) return res.status(403).json({ error: 'Forbidden' });
 
-        const reviews = await db.prepare(`
-          SELECT id, recommendation, comments_to_author${isStaff ? ', comments_to_editor, reviewer_user_id' : ''}, created_at
-          FROM submission_reviews WHERE submission_id = ? ORDER BY created_at
+        const settings = await getJournalSettings();
+        const blinded = isReviewer && !isStaff && Boolean(settings.double_blind);
+
+        // Reviews: staff + owner see submitted reviews (staff also see confidential notes + reviewer id).
+        // Reviewers do not see peers' reviews.
+        let reviews: any[] = [];
+        if (isStaff) {
+            reviews = await db.prepare(`
+              SELECT sr.id, sr.recommendation, sr.comments_to_author, sr.comments_to_editor, sr.reviewer_user_id,
+                     sr.score_originality, sr.score_rigor, sr.score_significance, sr.score_clarity, sr.created_at,
+                     u.full_name AS reviewer_name
+              FROM submission_reviews sr LEFT JOIN app_users u ON u.id = sr.reviewer_user_id
+              WHERE sr.submission_id = ? ORDER BY sr.created_at
+            `).all(req.params.id);
+        } else if (isOwner) {
+            reviews = await db.prepare(`
+              SELECT id, recommendation, comments_to_author,
+                     score_originality, score_rigor, score_significance, score_clarity, created_at
+              FROM submission_reviews WHERE submission_id = ? ORDER BY created_at
+            `).all(req.params.id);
+        }
+
+        const versions = await db.prepare(`
+          SELECT id, version, manuscript_path, supplementary_json, response_to_reviewers, created_at
+          FROM submission_versions WHERE submission_id = ? ORDER BY version
         `).all(req.params.id);
-        res.json({ ...sub, reviews });
+
+        // Author identities are hidden from a reviewer under double-blind.
+        const authors = blinded ? [] : await db.prepare(`
+          SELECT author_order, first_name, last_name, email, affiliation, orcid, is_corresponding
+          FROM submission_authors WHERE submission_id = ? ORDER BY author_order
+        `).all(req.params.id);
+
+        // Assignment roster for the editor detail view.
+        const assignments = isStaff ? await db.prepare(`
+          SELECT ra.id, ra.status, ra.invited_at, ra.due_date, ra.responded_at, ra.round,
+                 u.full_name AS reviewer_name, u.email AS reviewer_email,
+                 (SELECT COUNT(*)::int FROM submission_reviews sr WHERE sr.assignment_id = ra.id) AS submitted
+          FROM review_assignments ra LEFT JOIN app_users u ON u.id = ra.reviewer_user_id
+          WHERE ra.submission_id = ? ORDER BY ra.invited_at
+        `).all(req.params.id) : [];
+
+        const payload: any = { ...sub, reviews, versions, authors, assignments, blinded };
+        if (blinded) {
+            // Strip anything that could deanonymize the author from a reviewer.
+            payload.authors_json = null;
+            payload.author_user_id = null;
+            payload.cover_letter = null;
+            payload.declarations = null;
+        }
+        res.json(payload);
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1619,6 +1800,7 @@ app.get('/api/editor/submissions', requireRole(['editor', 'admin']), async (_req
         const rows = await db.prepare(`
           SELECT s.*, u.full_name AS author_name, u.email AS author_email,
             (SELECT COUNT(*)::int FROM review_assignments ra WHERE ra.submission_id = s.id) AS assigned_count,
+            (SELECT COUNT(*)::int FROM review_assignments ra WHERE ra.submission_id = s.id AND ra.status = 'completed') AS completed_count,
             (SELECT COUNT(*)::int FROM submission_reviews sr WHERE sr.submission_id = s.id) AS review_count
           FROM submissions s JOIN app_users u ON u.id = s.author_user_id
           ORDER BY s.created_at DESC
@@ -1635,19 +1817,28 @@ app.get('/api/editor/reviewers', requireRole(['editor', 'admin']), async (_req, 
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// Editor: assign a reviewer to a submission.
+// Fetch the singleton journal settings (double-blind, deadlines, ISSN/DOI).
+const getJournalSettings = async (): Promise<any> => {
+    const s = await db.prepare('SELECT * FROM journal_settings WHERE id = 1').get();
+    return s || { double_blind: true, review_due_days: 21, journal_name: 'Green Occasion', journal_acronym: 'go' };
+};
+
+// Editor: invite a reviewer (creates an assignment with a deadline + accept/decline token).
 app.post('/api/editor/submissions/:id/assign', requireRole(['editor', 'admin']), async (req: AuthenticatedRequest, res) => {
     try {
-        const { reviewerUserId } = req.body || {};
+        const { reviewerUserId, dueDays } = req.body || {};
         if (!reviewerUserId) return res.status(400).json({ error: 'reviewerUserId required' });
         const sub = await db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id) as any;
         if (!sub) return res.status(404).json({ error: 'Not found' });
+        const settings = await getJournalSettings();
+        const days = Number(dueDays) > 0 ? Number(dueDays) : (settings.review_due_days || 21);
 
         await db.prepare(`
-          INSERT INTO review_assignments (id, submission_id, reviewer_user_id, round, assigned_by)
-          VALUES (?, ?, ?, ?, ?)
+          INSERT INTO review_assignments (id, submission_id, reviewer_user_id, round, assigned_by,
+            status, invited_at, due_date, invite_token)
+          VALUES (?, ?, ?, ?, ?, 'invited', now(), now() + make_interval(days => ?), ?)
           ON CONFLICT (submission_id, reviewer_user_id, round) DO NOTHING
-        `).run(newId('asg'), req.params.id, reviewerUserId, sub.round, req.authUser!.userId);
+        `).run(newId('asg'), req.params.id, reviewerUserId, sub.round, req.authUser!.userId, days, crypto.randomUUID());
 
         if (sub.status === 'submitted') {
             await db.prepare(`UPDATE submissions SET status = 'under_review', updated_at = now() WHERE id = ?`).run(req.params.id);
@@ -1660,11 +1851,13 @@ app.post('/api/editor/submissions/:id/assign', requireRole(['editor', 'admin']),
 app.post('/api/editor/submissions/:id/decision', requireRole(['editor', 'admin']), async (req: AuthenticatedRequest, res) => {
     try {
         const { decision, note } = req.body || {};
-        if (!['accept', 'reject', 'minor', 'major'].includes(decision)) return res.status(400).json({ error: 'Invalid decision' });
+        if (!['accept', 'reject', 'desk_reject', 'minor', 'major'].includes(decision)) return res.status(400).json({ error: 'Invalid decision' });
         const sub = await db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id) as any;
         if (!sub) return res.status(404).json({ error: 'Not found' });
 
-        const status = decision === 'accept' ? 'accepted' : decision === 'reject' ? 'rejected' : 'revisions_requested';
+        const status = decision === 'accept' ? 'accepted'
+            : decision === 'reject' || decision === 'desk_reject' ? 'rejected'
+            : 'revisions_requested';
         await db.prepare(`UPDATE submissions SET decision = ?, decision_note = ?, status = ?, updated_at = now() WHERE id = ?`)
             .run(decision, note || null, status, req.params.id);
 
@@ -1690,43 +1883,333 @@ app.post('/api/editor/submissions/:id/decision', requireRole(['editor', 'admin']
                 await db.prepare('INSERT INTO paper_authors (paper_id, author_id) VALUES (?, ?) ON CONFLICT DO NOTHING')
                     .run(paperId, authorId);
             }
-            await db.prepare(`UPDATE submissions SET status = 'published', published_paper_id = ?, updated_at = now() WHERE id = ?`)
+            await db.prepare(`UPDATE submissions SET status = 'published', published_paper_id = ?, published_at = now(), updated_at = now() WHERE id = ?`)
                 .run(paperId, req.params.id);
         }
         res.json({ ok: true, status });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-// Reviewer: my assignments.
+// Editor: auto-drafted decision letter (pulls each reviewer's author-facing comments into a template).
+app.get('/api/editor/submissions/:id/decision-letter', requireRole(['editor', 'admin']), async (req: AuthenticatedRequest, res) => {
+    try {
+        const decision = String(req.query.decision || 'minor');
+        const sub = await db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id) as any;
+        if (!sub) return res.status(404).json({ error: 'Not found' });
+        const reviews = await db.prepare(`
+          SELECT recommendation, comments_to_author FROM submission_reviews
+          WHERE submission_id = ? ORDER BY created_at
+        `).all(req.params.id) as any[];
+        const settings = await getJournalSettings();
+
+        const verdict: Record<string, string> = {
+            accept: 'accept your manuscript for publication',
+            minor: 'invite you to submit a minor revision',
+            major: 'invite you to submit a major revision',
+            reject: 'not proceed with your manuscript at this time',
+            desk_reject: 'not send your manuscript out for review',
+        };
+        const lines: string[] = [];
+        lines.push(`Dear Author,`);
+        lines.push('');
+        lines.push(`Thank you for submitting "${sub.title}" to ${settings.journal_name || 'Green Occasion'}.`);
+        lines.push(`After consideration, we have decided to ${verdict[decision] || 'reach a decision'}.`);
+        if (reviews.length) {
+            lines.push('');
+            lines.push('The reviewers provided the following comments:');
+            reviews.forEach((r, i) => {
+                lines.push('');
+                lines.push(`Reviewer ${i + 1} (${r.recommendation}):`);
+                lines.push(r.comments_to_author?.trim() || '(no comments to author)');
+            });
+        }
+        lines.push('');
+        lines.push('We look forward to your response.');
+        lines.push('');
+        lines.push('Kind regards,');
+        lines.push('The Editorial Office');
+        res.json({ draft: lines.join('\n') });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Reviewer: my assignments (with deadlines + overdue flag).
 app.get('/api/reviewer/assignments', requireRole(['reviewer', 'editor', 'admin']), async (req: AuthenticatedRequest, res) => {
     try {
         const rows = await db.prepare(`
           SELECT ra.id AS assignment_id, ra.status AS assignment_status, ra.created_at,
-                 s.id AS submission_id, s.title, s.abstract, s.status AS submission_status,
+                 ra.invited_at, ra.due_date, ra.responded_at,
+                 (ra.due_date IS NOT NULL AND ra.due_date < now() AND ra.status <> 'completed') AS overdue,
+                 s.id AS submission_id, s.title, s.abstract, s.article_type, s.status AS submission_status,
                  (SELECT COUNT(*)::int FROM submission_reviews sr WHERE sr.assignment_id = ra.id) AS reviewed
           FROM review_assignments ra JOIN submissions s ON s.id = ra.submission_id
-          WHERE ra.reviewer_user_id = ? ORDER BY ra.created_at DESC
+          WHERE ra.reviewer_user_id = ? ORDER BY ra.due_date NULLS LAST, ra.created_at DESC
         `).all(req.authUser!.userId);
         res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Reviewer: accept or decline an invitation.
+app.post('/api/reviewer/assignments/:id/respond', requireRole(['reviewer', 'editor', 'admin']), async (req: AuthenticatedRequest, res) => {
+    try {
+        const { accept } = req.body || {};
+        const asg = await db.prepare('SELECT * FROM review_assignments WHERE id = ?').get(req.params.id) as any;
+        if (!asg) return res.status(404).json({ error: 'Assignment not found' });
+        if (req.authUser!.role === 'reviewer' && asg.reviewer_user_id !== req.authUser!.userId) {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+        const status = accept ? 'accepted' : 'declined';
+        await db.prepare(`UPDATE review_assignments SET status = ?, responded_at = now() WHERE id = ?`).run(status, asg.id);
+        res.json({ ok: true, status });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // Reviewer: submit a review.
 app.post('/api/reviewer/assignments/:id/review', requireRole(['reviewer', 'editor', 'admin']), async (req: AuthenticatedRequest, res) => {
     try {
-        const { recommendation, commentsToAuthor, commentsToEditor } = req.body || {};
+        const { recommendation, commentsToAuthor, commentsToEditor, scores } = req.body || {};
         if (!['accept', 'minor', 'major', 'reject'].includes(recommendation)) return res.status(400).json({ error: 'Invalid recommendation' });
         const asg = await db.prepare('SELECT * FROM review_assignments WHERE id = ?').get(req.params.id) as any;
         if (!asg) return res.status(404).json({ error: 'Assignment not found' });
         if (req.authUser!.role === 'reviewer' && asg.reviewer_user_id !== req.authUser!.userId) {
             return res.status(403).json({ error: 'Forbidden' });
         }
+        // Clamp rubric scores to 1-5 (or null).
+        const clamp = (v: any) => (Number.isFinite(Number(v)) ? Math.min(5, Math.max(1, Math.round(Number(v)))) : null);
+        const s = scores || {};
         await db.prepare(`
-          INSERT INTO submission_reviews (id, assignment_id, submission_id, reviewer_user_id, recommendation, comments_to_author, comments_to_editor)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(newId('rev'), asg.id, asg.submission_id, req.authUser!.userId, recommendation, commentsToAuthor || null, commentsToEditor || null);
-        await db.prepare(`UPDATE review_assignments SET status = 'completed' WHERE id = ?`).run(asg.id);
+          INSERT INTO submission_reviews (id, assignment_id, submission_id, reviewer_user_id, recommendation,
+            comments_to_author, comments_to_editor, score_originality, score_rigor, score_significance, score_clarity)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(newId('rev'), asg.id, asg.submission_id, req.authUser!.userId, recommendation,
+            commentsToAuthor || null, commentsToEditor || null,
+            clamp(s.originality), clamp(s.rigor), clamp(s.significance), clamp(s.clarity));
+        await db.prepare(`UPDATE review_assignments SET status = 'completed', responded_at = COALESCE(responded_at, now()) WHERE id = ?`).run(asg.id);
         res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Journal settings: editors + admins read; admins update (double-blind, deadlines, ISSN/DOI).
+app.get('/api/journal/settings', requireRole(['editor', 'admin']), async (_req, res) => {
+    try { res.json(await getJournalSettings()); }
+    catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+app.put('/api/journal/settings', requireRole(['admin']), async (req, res) => {
+    try {
+        const b = req.body || {};
+        await db.prepare(`
+          UPDATE journal_settings SET
+            double_blind = COALESCE(?, double_blind),
+            review_due_days = COALESCE(?, review_due_days),
+            journal_name = COALESCE(?, journal_name),
+            journal_acronym = COALESCE(?, journal_acronym),
+            issn_print = COALESCE(?, issn_print),
+            issn_online = COALESCE(?, issn_online),
+            doi_prefix = COALESCE(?, doi_prefix),
+            updated_at = now()
+          WHERE id = 1
+        `).run(
+            typeof b.doubleBlind === 'boolean' ? b.doubleBlind : null,
+            Number.isFinite(Number(b.reviewDueDays)) ? Number(b.reviewDueDays) : null,
+            b.journalName ?? null, b.journalAcronym ?? null,
+            b.issnPrint ?? null, b.issnOnline ?? null, b.doiPrefix ?? null,
+        );
+        res.json(await getJournalSettings());
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Public journal metadata (by slug) — powers each front-end's heading, title, and theme.
+app.get('/api/journal-site', async (req, res) => {
+    try {
+        const slug = String(req.query.slug || '').trim();
+        if (!slug) return res.status(400).json({ error: 'slug is required' });
+        const j = await db.prepare(`
+          SELECT name, slug, description, acronym, theme, issn_print, issn_online, doi_prefix
+          FROM journals WHERE slug = ? AND status = 'active'
+        `).get(slug);
+        if (!j) return res.status(404).json({ error: 'Journal not found' });
+        res.json(j);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Journals (multi-journal foundation) ──
+const slugify = (s: string) =>
+    String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'journal';
+
+// List journals (any authenticated user — authors pick one to submit to). With counts.
+app.get('/api/journals', requireAuth, async (_req, res) => {
+    try {
+        const rows = await db.prepare(`
+          SELECT j.*,
+            (SELECT COUNT(*)::int FROM papers p WHERE p.journal_id = j.id) AS paper_count,
+            (SELECT COUNT(*)::int FROM submissions s WHERE s.journal_id = j.id) AS submission_count,
+            (SELECT COUNT(*)::int FROM topics t WHERE t.journal_id = j.id AND t.parent_id IS NULL) AS topic_count
+          FROM journals j ORDER BY j.created_at
+        `).all();
+        res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Journal detail: journal + its topic tree + associated authors. (staff)
+app.get('/api/journals/:id', requireRole(['editor', 'admin']), async (req, res) => {
+    try {
+        const journal = await db.prepare('SELECT * FROM journals WHERE id = ?').get(req.params.id) as any;
+        if (!journal) return res.status(404).json({ error: 'Not found' });
+        const topics = await db.prepare(`
+          SELECT id, name, slug, parent_id FROM topics WHERE journal_id = ? ORDER BY parent_id NULLS FIRST, name
+        `).all(req.params.id);
+        const authors = await db.prepare(`
+          SELECT DISTINCT u.id, u.full_name, u.email,
+            (SELECT COUNT(*)::int FROM submissions s2 WHERE s2.author_user_id = u.id AND s2.journal_id = ?) AS submissions
+          FROM submissions s JOIN app_users u ON u.id = s.author_user_id
+          WHERE s.journal_id = ? ORDER BY u.full_name NULLS LAST
+        `).all(req.params.id, req.params.id);
+        // Papers mapped into this journal, so the admin can see topics and the papers under each.
+        const papers = await db.prepare(`
+          SELECT id, title, topic, status FROM papers
+          WHERE journal_id = ? ORDER BY topic NULLS LAST, created_at DESC
+        `).all(req.params.id);
+        res.json({ ...journal, topics, authors, papers });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Create a journal (admin).
+app.post('/api/journals', requireRole(['admin']), async (req, res) => {
+    try {
+        const { name, description, acronym, issnPrint, issnOnline, doiPrefix, status, theme } = req.body || {};
+        if (!name || !String(name).trim()) return res.status(400).json({ error: 'Journal name is required.' });
+        let slug = slugify(name);
+        const exists = await db.prepare('SELECT 1 FROM journals WHERE slug = ?').get(slug);
+        if (exists) slug = `${slug}-${crypto.randomUUID().slice(0, 4)}`;
+        const id = newId('jrnl');
+        await db.prepare(`
+          INSERT INTO journals (id, name, slug, description, acronym, issn_print, issn_online, doi_prefix, status, theme)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, String(name).trim(), slug, description || null, acronym || null,
+            issnPrint || null, issnOnline || null, doiPrefix || null, status === 'draft' ? 'draft' : 'active',
+            theme || 'default');
+        res.json({ id, slug });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Update a journal (admin).
+app.put('/api/journals/:id', requireRole(['admin']), async (req, res) => {
+    try {
+        const b = req.body || {};
+        await db.prepare(`
+          UPDATE journals SET
+            name = COALESCE(?, name), description = COALESCE(?, description), acronym = COALESCE(?, acronym),
+            issn_print = COALESCE(?, issn_print), issn_online = COALESCE(?, issn_online),
+            doi_prefix = COALESCE(?, doi_prefix), status = COALESCE(?, status), theme = COALESCE(?, theme),
+            updated_at = now()
+          WHERE id = ?
+        `).run(b.name ?? null, b.description ?? null, b.acronym ?? null, b.issnPrint ?? null,
+            b.issnOnline ?? null, b.doiPrefix ?? null, b.status ?? null, b.theme ?? null, req.params.id);
+        res.json(await db.prepare('SELECT * FROM journals WHERE id = ?').get(req.params.id));
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Staging pool: ingested/scraped papers not yet mapped to a journal, grouped by topic.
+// This is the "central staging table categorized by topic."
+app.get('/api/staging/topics', requireRole(['admin']), async (_req, res) => {
+    try {
+        const rows = await db.prepare(`
+          SELECT p.topic,
+            COUNT(*)::int AS paper_count,
+            COUNT(*) FILTER (WHERE p.status = 'approved')::int AS approved_count
+          FROM papers p
+          WHERE p.journal_id IS NULL AND p.topic IS NOT NULL AND p.topic <> ''
+          GROUP BY p.topic ORDER BY paper_count DESC
+        `).all();
+        res.json(rows);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Map a staged topic into a journal: ports every unmapped paper with that topic into the
+// journal (sets journal_id) and registers the topic in the journal's managed topic tree.
+app.post('/api/journals/:id/map-topic', requireRole(['admin']), async (req, res) => {
+    try {
+        const body = req.body || {};
+        // Accept a single `topic` or a `topics` array (bulk mapping).
+        const rawArr: unknown[] = Array.isArray(body.topics) ? body.topics : (body.topic != null ? [body.topic] : []);
+        const topics = [...new Set(rawArr.map((t) => String(t).trim()).filter(Boolean))];
+        if (!topics.length) return res.status(400).json({ error: 'At least one topic is required' });
+        const journal = await db.prepare('SELECT id FROM journals WHERE id = ?').get(req.params.id);
+        if (!journal) return res.status(404).json({ error: 'Journal not found' });
+
+        let moved = 0;
+        for (const topic of topics) {
+            const result = await db.prepare(`
+              UPDATE papers SET journal_id = ? WHERE topic = ? AND journal_id IS NULL
+            `).run(req.params.id, topic);
+            moved += (result as any)?.rowCount ?? (result as any)?.changes ?? 0;
+            await db.prepare(`
+              INSERT INTO topics (id, name, slug, journal_id, parent_id)
+              VALUES (?, ?, ?, ?, NULL)
+              ON CONFLICT (journal_id, parent_id, slug) DO NOTHING
+            `).run(newId('topic'), topic, slugify(topic), req.params.id);
+        }
+        res.json({ ok: true, moved, topics: topics.length });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Delete a journal: its papers/submissions return to staging (journal_id NULL); topics removed.
+app.delete('/api/journals/:id', requireRole(['admin']), async (req, res) => {
+    try {
+        if (req.params.id === 'jrnl_green_occasion') {
+            return res.status(400).json({ error: 'The default journal cannot be deleted.' });
+        }
+        const journal = await db.prepare('SELECT id FROM journals WHERE id = ?').get(req.params.id);
+        if (!journal) return res.status(404).json({ error: 'Not found' });
+        await db.prepare('UPDATE papers SET journal_id = NULL WHERE journal_id = ?').run(req.params.id);
+        await db.prepare('UPDATE submissions SET journal_id = NULL WHERE journal_id = ?').run(req.params.id);
+        await db.prepare('DELETE FROM topics WHERE journal_id = ?').run(req.params.id);
+        await db.prepare('DELETE FROM journals WHERE id = ?').run(req.params.id);
+        res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Rename a topic within a journal (admin). Rewrites papers.topic; renaming to an existing
+// topic merges them. Deterministic curation — no AI.
+app.put('/api/journals/:id/topics/rename', requireRole(['admin']), async (req, res) => {
+    try {
+        const from = String(req.body?.from || '').trim();
+        const to = String(req.body?.to || '').trim();
+        if (!from || !to) return res.status(400).json({ error: 'Both `from` and `to` are required.' });
+        if (from === to) return res.json({ ok: true, moved: 0 });
+        const journal = await db.prepare('SELECT id FROM journals WHERE id = ?').get(req.params.id);
+        if (!journal) return res.status(404).json({ error: 'Journal not found' });
+
+        const result = await db.prepare(`
+          UPDATE papers SET topic = ? WHERE journal_id = ? AND topic = ?
+        `).run(to, req.params.id, from);
+        const moved = (result as any)?.rowCount ?? (result as any)?.changes ?? 0;
+
+        // Update the managed topic row (drop the old name, ensure the new one exists).
+        await db.prepare('DELETE FROM topics WHERE journal_id = ? AND name = ? AND parent_id IS NULL').run(req.params.id, from);
+        await db.prepare(`
+          INSERT INTO topics (id, name, slug, journal_id, parent_id)
+          VALUES (?, ?, ?, ?, NULL) ON CONFLICT (journal_id, parent_id, slug) DO NOTHING
+        `).run(newId('topic'), to, slugify(to), req.params.id);
+
+        res.json({ ok: true, moved });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Add a topic or subtopic to a journal (admin). parentId set = subtopic.
+app.post('/api/journals/:id/topics', requireRole(['admin']), async (req, res) => {
+    try {
+        const { name, parentId } = req.body || {};
+        if (!name || !String(name).trim()) return res.status(400).json({ error: 'Topic name is required.' });
+        const journal = await db.prepare('SELECT id FROM journals WHERE id = ?').get(req.params.id);
+        if (!journal) return res.status(404).json({ error: 'Journal not found' });
+        const id = newId('topic');
+        await db.prepare(`
+          INSERT INTO topics (id, name, slug, journal_id, parent_id)
+          VALUES (?, ?, ?, ?, ?)
+          ON CONFLICT (journal_id, parent_id, slug) DO NOTHING
+        `).run(id, String(name).trim(), slugify(name), req.params.id, parentId || null);
+        res.json({ id });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

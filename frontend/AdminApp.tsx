@@ -18,6 +18,10 @@ import { ReviewerHome } from './pages/ReviewerHome';
 import { EditorSubmissions } from './pages/EditorSubmissions';
 import { EditorSubmissionDetail } from './pages/EditorSubmissionDetail';
 import { AdminUsers } from './pages/AdminUsers';
+import { JournalSettings } from './pages/JournalSettings';
+import { JournalsPage } from './pages/JournalsPage';
+import { JournalDetail } from './pages/JournalDetail';
+import { StagingPage } from './pages/StagingPage';
 
 export default function AdminApp() {
   return (
@@ -67,9 +71,13 @@ export default function AdminApp() {
           <Route path="collection" element={<AdminCollectionPage />} />
           <Route path="review" element={<AdminReviewPanel />} />
           <Route path="jobs" element={<AdminJobsPage />} />
+          <Route path="journals" element={<JournalsPage />} />
+          <Route path="journals/:id" element={<JournalDetail />} />
+          <Route path="staging" element={<StagingPage />} />
           <Route path="submissions" element={<EditorSubmissions />} />
           <Route path="submissions/:id" element={<EditorSubmissionDetail />} />
           <Route path="users" element={<AdminUsers />} />
+          <Route path="settings" element={<JournalSettings />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/admin" replace />} />

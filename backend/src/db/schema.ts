@@ -511,6 +511,125 @@ CREATE TABLE IF NOT EXISTS submission_reviews (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS submission_reviews_submission_idx ON submission_reviews(submission_id);
+
+-- ── Phase 2A: submission depth (article type, declarations, versions, structured authors) ──
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS article_type TEXT;          -- research|review|case_study|...
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS cover_letter TEXT;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS declarations JSONB;         -- {funding,conflicts,copyrightAgreed,license}
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS current_version INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ;
+
+-- Each revision (V1, V2, …): manuscript file + supplementary + response-to-reviewers.
+CREATE TABLE IF NOT EXISTS submission_versions (
+  id TEXT PRIMARY KEY,
+  submission_id TEXT NOT NULL REFERENCES submissions(id),
+  version INTEGER NOT NULL,
+  manuscript_path TEXT,                     -- storage key of the main manuscript
+  supplementary_json JSONB,                 -- [{name, key}]
+  response_to_reviewers TEXT,               -- author's response letter (revisions only)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (submission_id, version)
+);
+CREATE INDEX IF NOT EXISTS submission_versions_sub_idx ON submission_versions(submission_id);
+
+-- Structured authorship (ORCID, corresponding flag) — supersedes submissions.authors_json.
+CREATE TABLE IF NOT EXISTS submission_authors (
+  id TEXT PRIMARY KEY,
+  submission_id TEXT NOT NULL REFERENCES submissions(id),
+  author_order INTEGER NOT NULL DEFAULT 0,
+  first_name TEXT,
+  last_name TEXT,
+  email TEXT,
+  affiliation TEXT,
+  orcid TEXT,
+  is_corresponding BOOLEAN NOT NULL DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS submission_authors_sub_idx ON submission_authors(submission_id);
+
+-- ── Phase 2B: peer-review engine (invitations, deadlines, structured rubric, blinding) ──
+-- Assignment lifecycle: invited -> accepted|declined -> completed. Deadlines + token for
+-- future emailed accept/decline links (2D).
+ALTER TABLE review_assignments ADD COLUMN IF NOT EXISTS due_date TIMESTAMPTZ;
+ALTER TABLE review_assignments ADD COLUMN IF NOT EXISTS invited_at TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE review_assignments ADD COLUMN IF NOT EXISTS responded_at TIMESTAMPTZ;
+ALTER TABLE review_assignments ADD COLUMN IF NOT EXISTS invite_token TEXT;
+
+-- Structured 1-5 rubric scores on each review.
+ALTER TABLE submission_reviews ADD COLUMN IF NOT EXISTS score_originality INTEGER;
+ALTER TABLE submission_reviews ADD COLUMN IF NOT EXISTS score_rigor INTEGER;
+ALTER TABLE submission_reviews ADD COLUMN IF NOT EXISTS score_significance INTEGER;
+ALTER TABLE submission_reviews ADD COLUMN IF NOT EXISTS score_clarity INTEGER;
+
+-- Journal-wide settings (singleton row id=1). Double-blind default on; ISSN/DOI land in 2C.
+CREATE TABLE IF NOT EXISTS journal_settings (
+  id INTEGER PRIMARY KEY,
+  double_blind BOOLEAN NOT NULL DEFAULT true,
+  review_due_days INTEGER NOT NULL DEFAULT 21,
+  journal_name TEXT,
+  journal_acronym TEXT,
+  issn_print TEXT,
+  issn_online TEXT,
+  doi_prefix TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT journal_settings_singleton CHECK (id = 1)
+);
+INSERT INTO journal_settings (id, double_blind, journal_name, journal_acronym)
+  VALUES (1, true, 'Green Occasion', 'go')
+  ON CONFLICT (id) DO NOTHING;
+
+-- ── Phase 3A: multi-journal foundation (Journal → Topic → Subtopic, journal_id scoping) ──
+-- Each journal is a distinct front-end site; isolation is enforced by journal_id row-scoping.
+CREATE TABLE IF NOT EXISTS journals (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,               -- front-end route / subdomain key
+  description TEXT,
+  acronym TEXT,
+  issn_print TEXT,
+  issn_online TEXT,
+  doi_prefix TEXT,
+  status TEXT NOT NULL DEFAULT 'active',   -- active|draft
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Managed topic hierarchy: parent_id NULL = top-level Topic, set = Subtopic.
+-- journal_id NULL = unmapped (staging pool); set = mapped to a journal.
+CREATE TABLE IF NOT EXISTS topics (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  slug TEXT NOT NULL,
+  journal_id TEXT REFERENCES journals(id),
+  parent_id TEXT REFERENCES topics(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (journal_id, parent_id, slug)
+);
+CREATE INDEX IF NOT EXISTS topics_journal_idx ON topics(journal_id);
+CREATE INDEX IF NOT EXISTS topics_parent_idx ON topics(parent_id);
+
+-- journal_id scoping on the content + submission tables (NULL = staging/unassigned).
+ALTER TABLE papers ADD COLUMN IF NOT EXISTS journal_id TEXT REFERENCES journals(id);
+ALTER TABLE submissions ADD COLUMN IF NOT EXISTS journal_id TEXT REFERENCES journals(id);
+CREATE INDEX IF NOT EXISTS papers_journal_idx ON papers(journal_id);
+CREATE INDEX IF NOT EXISTS submissions_journal_idx ON submissions(journal_id);
+
+-- Default journal so the existing public site keeps serving. One-time backfill guarded by a flag.
+-- Per-journal public-site theme (palette key applied by the front-end).
+ALTER TABLE journals ADD COLUMN IF NOT EXISTS theme TEXT NOT NULL DEFAULT 'default';
+ALTER TABLE journal_settings ADD COLUMN IF NOT EXISTS default_journal_backfilled BOOLEAN NOT NULL DEFAULT false;
+INSERT INTO journals (id, name, slug, description, acronym, status)
+  VALUES ('jrnl_green_occasion', 'Climate Change and Sustainable Future Journal', 'green-occasion',
+          'Peer-reviewed, open-access research on climate change and a sustainable future.', 'go', 'active')
+  ON CONFLICT (slug) DO NOTHING;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM journal_settings WHERE id = 1 AND default_journal_backfilled) THEN
+    UPDATE papers SET journal_id = 'jrnl_green_occasion' WHERE journal_id IS NULL;
+    UPDATE submissions SET journal_id = 'jrnl_green_occasion' WHERE journal_id IS NULL;
+    UPDATE journal_settings SET default_journal_backfilled = true WHERE id = 1;
+  END IF;
+END $$;
     `);
     console.log("PostgreSQL database initialized with schema.");
   } catch (err: any) {

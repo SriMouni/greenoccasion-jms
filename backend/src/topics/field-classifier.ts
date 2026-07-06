@@ -21,13 +21,19 @@ export const FIELDS: FieldDef[] = [
 
 export const OTHER_FIELD = 'Other Research';
 
+const titleCase = (s: string) =>
+  s.replace(/[_\-]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/\b\w/g, (c) => c.toUpperCase());
+
 export const classifyField = (topic: string | null | undefined): string => {
-  const text = String(topic || '').toLowerCase();
+  const raw = String(topic || '').trim();
+  const text = raw.toLowerCase();
   if (!text) return OTHER_FIELD;
   for (const def of FIELDS) {
     if (def.keywords.some((kw) => text.includes(kw))) return def.field;
   }
-  return OTHER_FIELD;
+  // Domain-agnostic fallback: non-green topics (e.g. medical) surface under their own
+  // name rather than all collapsing into a single "Other" bucket.
+  return titleCase(raw);
 };
 
 export const fieldIcon = (field: string): string =>

@@ -41,6 +41,7 @@ export const homeForRole = (role?: Role | null): string => {
     case 'reviewer':
       return '/admin/reviewer';
     case 'editor':
+      return '/admin/submissions';
     case 'admin':
       return '/admin';
     default:
@@ -58,6 +59,18 @@ export const jsonPost = async (url: string, body: unknown) => {
   if (!res.ok) throw new Error(data?.error || 'Request failed');
   return data;
 };
+
+export const ARTICLE_TYPES: { value: string; label: string }[] = [
+  { value: 'research', label: 'Original Research Article' },
+  { value: 'review', label: 'Review Article' },
+  { value: 'case_study', label: 'Case Study' },
+  { value: 'short_report', label: 'Short Report' },
+  { value: 'perspective', label: 'Perspective / Opinion' },
+  { value: 'methods', label: 'Methods / Protocol' },
+];
+export const ARTICLE_TYPE_LABEL: Record<string, string> = Object.fromEntries(
+  ARTICLE_TYPES.map((t) => [t.value, t.label]),
+);
 
 export const SUBMISSION_STATUS_LABEL: Record<string, string> = {
   submitted: 'Submitted',
