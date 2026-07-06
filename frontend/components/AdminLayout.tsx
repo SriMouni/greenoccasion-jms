@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { ExternalLink, LifeBuoy, LogOut, Plus } from 'lucide-react';
+import { ExternalLink, LogOut, Plus } from 'lucide-react';
 import { useAuth } from '../lib/portal';
 import { navForRole, ROLE_LABEL } from '../lib/nav';
 import { Logo } from './Logo';
@@ -60,31 +60,6 @@ export const AdminLayout = () => {
           )}
         </nav>
 
-        {/* Bottom */}
-        <div className="space-y-1 border-t border-outline-variant px-4 py-4">
-          <div className="flex cursor-default items-center gap-3 rounded-lg px-4 py-2 text-sm text-on-surface-variant">
-            <LifeBuoy className="h-4 w-4 shrink-0" />
-            <span>Support</span>
-          </div>
-
-          <div className="mt-3 flex items-center gap-3 rounded-lg bg-surface-container-high px-3 py-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-on-primary">
-              {role === 'editor' ? 'ED' : 'AD'}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-bold text-on-surface">{user?.fullName || user?.username || 'Editorial Office'}</p>
-              <p className="truncate text-[11px] capitalize text-on-surface-variant">{role}</p>
-            </div>
-            <button
-              type="button"
-              onClick={handleLogout}
-              title="Log out"
-              className="rounded-md p-2 text-on-surface-variant transition-colors hover:bg-error-container hover:text-on-error-container"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
       </aside>
 
       {/* Main content */}
@@ -93,15 +68,34 @@ export const AdminLayout = () => {
           <span className="text-sm font-semibold uppercase tracking-[0.12em] text-on-surface-variant">
             {ROLE_LABEL[role]}
           </span>
-          <a
-            href={import.meta.env.VITE_PUBLIC_SITE_URL || '/'}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-xs font-semibold text-primary transition-colors hover:text-primary-dark"
-          >
-            <ExternalLink className="h-4 w-4" />
-            View Public Site
-          </a>
+          <div className="flex items-center gap-4">
+            <a
+              href={import.meta.env.VITE_PUBLIC_SITE_URL || '/'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-xs font-semibold text-primary transition-colors hover:text-primary-dark"
+            >
+              <ExternalLink className="h-4 w-4" />
+              View Public Site
+            </a>
+            <span className="h-6 w-px bg-outline-variant" />
+            <div className="flex items-center gap-2">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-on-primary">
+                {role === 'editor' ? 'ED' : 'AD'}
+              </span>
+              <div className="hidden sm:block leading-tight">
+                <p className="text-xs font-bold text-on-surface">{user?.fullName || user?.username || 'Editorial Office'}</p>
+                <p className="text-[10px] capitalize text-on-surface-variant">{role}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant px-3 py-1.5 text-xs font-semibold text-on-surface-variant transition-colors hover:bg-error-container hover:text-on-error-container"
+            >
+              <LogOut className="h-4 w-4" /> Sign out
+            </button>
+          </div>
         </header>
         <div className="p-8">
           <Outlet />
