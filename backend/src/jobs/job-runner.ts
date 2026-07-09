@@ -5,6 +5,7 @@ import { runIngestPapersJob } from '../worker/ingestion/ingest-papers.job.ts';
 import { runBackfillPdfsJob } from '../worker/maintenance/backfill-pdfs.job.ts';
 import { runAnalyzePapersJob } from '../worker/maintenance/analyze-papers.job.ts';
 import { runEnrichAuthorsJob } from '../worker/maintenance/enrich-authors.job.ts';
+import { runHarvestContactsJob } from '../worker/maintenance/harvest-contacts.job.ts';
 
 /**
  * Resolve an application job by id and run the handler for its type.
@@ -42,6 +43,10 @@ export const processJob = async (jobId: string) => {
 
   if (appJob.type === JOB_TYPE.ENRICH_AUTHORS) {
     return await runEnrichAuthorsJob(jobId);
+  }
+
+  if (appJob.type === JOB_TYPE.HARVEST_CONTACTS) {
+    return await runHarvestContactsJob(jobId);
   }
 
   throw new Error(`Unsupported job type: ${appJob.type}`);

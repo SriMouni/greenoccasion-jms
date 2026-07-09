@@ -386,6 +386,8 @@ ALTER TABLE papers ADD COLUMN IF NOT EXISTS ai_score INTEGER;
 -- vs 'aggregated' (ingested open-access papers from other sources). Existing rows
 -- backfill to 'aggregated'. Drives the public original/indexed split + SEO directives.
 ALTER TABLE papers ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'aggregated';
+-- Set once the contact-harvest job has scanned this paper's PDF for author emails.
+ALTER TABLE papers ADD COLUMN IF NOT EXISTS contacts_harvested_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS papers_doi_lower_idx
   ON papers (lower(doi))

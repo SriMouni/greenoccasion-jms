@@ -5,6 +5,7 @@ export const JOB_TYPE = {
   ENRICH_AUTHORS: 'enrich_authors',
   BACKFILL_PDFS: 'backfill_pdfs',
   ANALYZE_PAPERS: 'analyze_papers',
+  HARVEST_CONTACTS: 'harvest_contacts',
 } as const;
 
 export type JobType = (typeof JOB_TYPE)[keyof typeof JOB_TYPE];

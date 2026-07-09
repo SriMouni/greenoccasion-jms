@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Loader2, Mail, AlertTriangle } from 'lucide-react';
+import { Loader2, Mail, AlertTriangle, Sparkles } from 'lucide-react';
 
 type Lead = {
   id: string;
@@ -12,6 +12,17 @@ type Lead = {
   status: string;
   journal_name: string | null;
   created_at: string;
+};
+
+type Contact = {
+  id: string;
+  email: string;
+  source: string;
+  confidence: number | null;
+  captured_at: string;
+  author_name: string;
+  institution: string | null;
+  orcid: string | null;
 };
 
 const STATUSES = ['new', 'contacted', 'onboarded', 'archived'];
@@ -30,6 +41,8 @@ export const AdminLeads = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [mailerConfigured, setMailerConfigured] = useState(true);
   const [saving, setSaving] = useState('');
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [harvesting, setHarvesting] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -41,7 +54,23 @@ export const AdminLeads = () => {
       })
       .finally(() => setLoading(false));
   };
-  useEffect(load, []);
+  const loadContacts = () => {
+    fetch('/api/admin/author-contacts')
+      .then((r) => (r.ok ? r.json() : { contacts: [] }))
+      .then((d) => setContacts(Array.isArray(d?.contacts) ? d.contacts : []));
+  };
+  useEffect(() => { load(); loadContacts(); }, []);
+
+  const runHarvest = async () => {
+    setHarvesting(true);
+    try {
+      await fetch('/api/admin/authors/harvest-contacts', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit: 50 }),
+      });
+      // The job runs in the background; give it a moment, then refresh the list.
+      window.setTimeout(() => { loadContacts(); setHarvesting(false); }, 8000);
+    } catch { setHarvesting(false); }
+  };
 
   const setStatus = async (id: string, status: string) => {
     setSaving(id);
@@ -125,6 +154,59 @@ export const AdminLeads = () => {
             )}
           </tbody>
         </table>
+      </div>
+
+      {/* Harvested corresponding-author emails from stored OA PDFs */}
+      <div className="space-y-3 pt-4">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="font-serif text-2xl font-bold text-on-surface">Harvested Author Contacts</h2>
+            <p className="text-sm text-on-surface-variant">
+              Corresponding-author emails extracted from stored open-access PDFs — for editorial outreach.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={runHarvest}
+            disabled={harvesting}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-bold text-on-primary disabled:opacity-50"
+          >
+            {harvesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {harvesting ? 'Harvesting…' : 'Harvest emails'}
+          </button>
+        </div>
+
+        <div className="overflow-x-auto rounded-lg border border-outline-variant bg-surface-container-lowest">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-outline-variant text-left text-[10px] uppercase tracking-[0.14em] text-on-surface-variant">
+                <th className="px-5 py-3 font-semibold">Author</th>
+                <th className="px-5 py-3 font-semibold">Email</th>
+                <th className="px-5 py-3 font-semibold">Source</th>
+                <th className="px-5 py-3 font-semibold">Captured</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-outline-variant/60">
+              {contacts.length === 0 ? (
+                <tr><td colSpan={4} className="px-5 py-10 text-center text-on-surface-variant">No harvested contacts yet. Click “Harvest emails” to scan stored PDFs.</td></tr>
+              ) : (
+                contacts.map((c) => (
+                  <tr key={c.id} className="hover:bg-surface-container-low">
+                    <td className="px-5 py-3">
+                      <div className="font-semibold text-on-surface">{c.author_name}</div>
+                      {c.institution && c.institution !== 'Unknown' && <div className="text-xs text-on-surface-variant">{c.institution}</div>}
+                    </td>
+                    <td className="px-5 py-3">
+                      <a href={`mailto:${c.email}`} className="inline-flex items-center gap-1.5 text-primary hover:underline"><Mail className="h-3.5 w-3.5" /> {c.email}</a>
+                    </td>
+                    <td className="px-5 py-3 text-xs text-on-surface-variant">{c.source}</td>
+                    <td className="px-5 py-3 text-xs text-on-surface-variant">{new Date(c.captured_at).toLocaleDateString()}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

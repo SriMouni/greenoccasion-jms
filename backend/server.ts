@@ -2167,6 +2167,34 @@ app.get('/api/admin/author-leads', requireRole(['admin']), async (_req, res) => 
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// Admin: start the contact-harvest job (extracts corresponding-author emails from
+// stored OA PDFs into author_contacts). Background job — never runs inline here.
+app.post('/api/admin/authors/harvest-contacts', requireRole(['admin']), async (req, res) => {
+    try {
+        const limit = Math.min(Math.max(Number(req.body?.limit) || 25, 1), 100);
+        const job = await createJob({
+            type: JOB_TYPE.HARVEST_CONTACTS,
+            payload: { limit, requestedAt: new Date().toISOString(), runNonce: crypto.randomUUID() },
+        });
+        await enqueueJob(job.id);
+        res.status(202).json({ jobId: job.id, status: job.status });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Admin: harvested corresponding-author emails (with the author they belong to).
+app.get('/api/admin/author-contacts', requireRole(['admin']), async (_req, res) => {
+    try {
+        const contacts = await db.prepare(`
+          SELECT c.id, c.value AS email, c.source, c.confidence, c.captured_at,
+                 a.name AS author_name, a.institution, a.orcid
+          FROM author_contacts c JOIN authors a ON a.id = c.author_id
+          WHERE c.contact_type = 'email'
+          ORDER BY c.captured_at DESC
+        `).all();
+        res.json({ contacts });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // Admin: update a lead's outreach status.
 app.patch('/api/admin/author-leads/:id', requireRole(['admin']), async (req, res) => {
     try {
