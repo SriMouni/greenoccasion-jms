@@ -1411,12 +1411,27 @@ app.get('/api/author/:name', async (req, res) => {
             FROM author_identities WHERE author_id = ?
         `).all(author.id) as any[];
 
+        // Real co-authors: other authors who share approved papers with this one.
+        const coAuthors = await db.prepare(`
+            SELECT a.id, a.name, a.institution, a.orcid,
+                   COUNT(DISTINCT pa1.paper_id) AS shared
+            FROM paper_authors pa1
+            JOIN papers p ON p.id = pa1.paper_id AND p.status = 'approved'
+            JOIN paper_authors pa2 ON pa2.paper_id = pa1.paper_id AND pa2.author_id <> pa1.author_id
+            JOIN authors a ON a.id = pa2.author_id
+            WHERE pa1.author_id = ?
+            GROUP BY a.id, a.name, a.institution, a.orcid
+            ORDER BY shared DESC, a.name ASC
+            LIMIT 6
+        `).all(author.id) as any[];
+
         const enrichedAuthor = {
             ...author,
             totalPublications: papers.length,
             researchAreas: Array.from(new Set(papers.map((p: any) => p.topic))),
             affiliations,
             identities,
+            coAuthors,
             bio: `${author.name} is a researcher${author.institution && author.institution !== 'Unknown' ? ` at ${author.institution}` : ''} contributing to the Green Occasion library.`,
         };
 
