@@ -484,6 +484,9 @@ CREATE TABLE IF NOT EXISTS author_leads (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS author_leads_status_idx ON author_leads (status);
+-- The quick corner widget captures email + phone only; name is optional.
+ALTER TABLE author_leads ADD COLUMN IF NOT EXISTS phone TEXT;
+ALTER TABLE author_leads ALTER COLUMN name DROP NOT NULL;
 
 -- ── Editorial workflow: self-registered authors, submissions, peer review ──
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS full_name TEXT;

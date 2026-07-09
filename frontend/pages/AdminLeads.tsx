@@ -3,8 +3,9 @@ import { Loader2, Mail, AlertTriangle } from 'lucide-react';
 
 type Lead = {
   id: string;
-  name: string;
+  name: string | null;
   email: string;
+  phone: string | null;
   affiliation: string | null;
   interest: string | null;
   message: string | null;
@@ -95,13 +96,14 @@ export const AdminLeads = () => {
               leads.map((l) => (
                 <tr key={l.id} className={`align-top hover:bg-surface-container-low ${l.status === 'new' ? 'bg-primary/5' : ''}`}>
                   <td className="px-5 py-4">
-                    <div className="font-semibold text-on-surface">{l.name}</div>
+                    <div className="font-semibold text-on-surface">{l.name || '—'}</div>
                     {l.affiliation && <div className="text-xs text-on-surface-variant">{l.affiliation}</div>}
                   </td>
                   <td className="px-5 py-4">
                     <a href={`mailto:${l.email}`} className="inline-flex items-center gap-1.5 text-primary hover:underline">
                       <Mail className="h-3.5 w-3.5" /> {l.email}
                     </a>
+                    {l.phone && <div className="mt-1 text-xs text-on-surface-variant">{l.phone}</div>}
                   </td>
                   <td className="px-5 py-4 text-on-surface-variant">
                     <div>{l.interest || '—'}</div>

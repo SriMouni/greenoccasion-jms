@@ -2115,8 +2115,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // notifies the editorial inbox (if a mail provider is configured).
 app.post('/api/author-leads', async (req, res) => {
     try {
-        const { name, email, affiliation, interest, message, journalSlug } = req.body || {};
-        if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required.' });
+        const { name, email, phone, affiliation, interest, message, journalSlug } = req.body || {};
         if (!email || !EMAIL_RE.test(String(email).trim())) return res.status(400).json({ error: 'A valid email is required.' });
 
         let journalId: string | null = null;
@@ -2127,9 +2126,10 @@ app.post('/api/author-leads', async (req, res) => {
 
         const id = newId('lead');
         await db.prepare(`
-          INSERT INTO author_leads (id, name, email, affiliation, interest, message, journal_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(id, String(name).trim(), String(email).trim(),
+          INSERT INTO author_leads (id, name, email, phone, affiliation, interest, message, journal_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(id, name ? String(name).trim() : null, String(email).trim(),
+            phone ? String(phone).trim() : null,
             affiliation ? String(affiliation).trim() : null,
             interest ? String(interest).trim() : null,
             message ? String(message).trim() : null,
@@ -2139,15 +2139,16 @@ app.post('/api/author-leads', async (req, res) => {
         const safe = (s: string) => String(s || '').replace(/[<>]/g, '');
         sendMail({
             to: notifyEmail(),
-            subject: `New Call-for-Papers interest: ${safe(name)}`,
+            subject: `New author interest${name ? `: ${safe(name)}` : ''}`,
             replyTo: String(email).trim(),
             html: `<h2>New author interest</h2>
-              <p><b>Name:</b> ${safe(name)}</p>
+              <p><b>Name:</b> ${safe(name) || '—'}</p>
               <p><b>Email:</b> ${safe(email)}</p>
+              <p><b>Phone:</b> ${safe(phone) || '—'}</p>
               <p><b>Affiliation:</b> ${safe(affiliation) || '—'}</p>
               <p><b>Area of interest:</b> ${safe(interest) || '—'}</p>
               <p><b>Message:</b> ${safe(message) || '—'}</p>
-              <p style="color:#888">Captured from the Call-for-Papers popup.</p>`,
+              <p style="color:#888">Captured from the site's "Publish with us" widget.</p>`,
         }).catch(() => { /* logged in mailer */ });
 
         res.json({ ok: true });

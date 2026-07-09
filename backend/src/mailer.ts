@@ -35,4 +35,4 @@ export const sendMail = async ({ to, subject, html, replyTo }: SendArgs): Promis
   }
 };
 
-export const notifyEmail = (): string => process.env.LEADS_NOTIFY_EMAIL || 'projectvidnova@gmail.com';
+export const notifyEmail = (): string => process.env.LEADS_NOTIFY_EMAIL || 'admin@greenoccasion.in';
