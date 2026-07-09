@@ -468,6 +468,23 @@ CREATE TABLE IF NOT EXISTS author_contacts (
 CREATE INDEX IF NOT EXISTS author_contacts_author_idx
   ON author_contacts (author_id);
 
+-- Inbound "Call for Papers" leads: authors who express interest via the public popup.
+-- Admin-only; drives editorial outreach. Distinct from author_contacts (which is
+-- harvested corresponding-author emails from published OA papers).
+CREATE TABLE IF NOT EXISTS author_leads (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  affiliation TEXT,
+  interest TEXT,                  -- research area / what they'd like to submit
+  message TEXT,
+  journal_id TEXT REFERENCES journals(id),
+  source TEXT NOT NULL DEFAULT 'call-for-papers-popup',
+  status TEXT NOT NULL DEFAULT 'new',   -- new | contacted | onboarded | archived
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS author_leads_status_idx ON author_leads (status);
+
 -- ── Editorial workflow: self-registered authors, submissions, peer review ──
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS full_name TEXT;
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS email TEXT;

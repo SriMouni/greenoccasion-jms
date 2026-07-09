@@ -38,6 +38,7 @@ dotenv.config();
 
 // DB module runs schema initialization
 import { db, schemaReady } from './src/db/schema.ts';
+import { sendMail, notifyEmail, isMailerConfigured } from './src/mailer.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2103,6 +2104,75 @@ app.delete('/api/admin/papers/:id', requireRole(['admin']), async (req, res) => 
         const paper = await db.prepare('SELECT id FROM papers WHERE id = ?').get(req.params.id);
         if (!paper) return res.status(404).json({ error: 'Paper not found' });
         await deletePaperCascade(req.params.id);
+        res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Call-for-Papers leads (inbound author interest from the public popup) ──
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Public: an author expresses interest via the site popup. Stores the lead and
+// notifies the editorial inbox (if a mail provider is configured).
+app.post('/api/author-leads', async (req, res) => {
+    try {
+        const { name, email, affiliation, interest, message, journalSlug } = req.body || {};
+        if (!name || !String(name).trim()) return res.status(400).json({ error: 'Name is required.' });
+        if (!email || !EMAIL_RE.test(String(email).trim())) return res.status(400).json({ error: 'A valid email is required.' });
+
+        let journalId: string | null = null;
+        if (journalSlug) {
+            const j = await db.prepare('SELECT id FROM journals WHERE slug = ?').get(String(journalSlug)) as any;
+            journalId = j?.id ?? null;
+        }
+
+        const id = newId('lead');
+        await db.prepare(`
+          INSERT INTO author_leads (id, name, email, affiliation, interest, message, journal_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(id, String(name).trim(), String(email).trim(),
+            affiliation ? String(affiliation).trim() : null,
+            interest ? String(interest).trim() : null,
+            message ? String(message).trim() : null,
+            journalId);
+
+        // Fire-and-forget notification — never blocks the author's response.
+        const safe = (s: string) => String(s || '').replace(/[<>]/g, '');
+        sendMail({
+            to: notifyEmail(),
+            subject: `New Call-for-Papers interest: ${safe(name)}`,
+            replyTo: String(email).trim(),
+            html: `<h2>New author interest</h2>
+              <p><b>Name:</b> ${safe(name)}</p>
+              <p><b>Email:</b> ${safe(email)}</p>
+              <p><b>Affiliation:</b> ${safe(affiliation) || '—'}</p>
+              <p><b>Area of interest:</b> ${safe(interest) || '—'}</p>
+              <p><b>Message:</b> ${safe(message) || '—'}</p>
+              <p style="color:#888">Captured from the Call-for-Papers popup.</p>`,
+        }).catch(() => { /* logged in mailer */ });
+
+        res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Admin: list inbound leads.
+app.get('/api/admin/author-leads', requireRole(['admin']), async (_req, res) => {
+    try {
+        const leads = await db.prepare(`
+          SELECT l.*, j.name AS journal_name
+          FROM author_leads l LEFT JOIN journals j ON j.id = l.journal_id
+          ORDER BY l.created_at DESC
+        `).all();
+        res.json({ leads, mailerConfigured: isMailerConfigured() });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Admin: update a lead's outreach status.
+app.patch('/api/admin/author-leads/:id', requireRole(['admin']), async (req, res) => {
+    try {
+        const { status } = req.body || {};
+        const allowed = ['new', 'contacted', 'onboarded', 'archived'];
+        if (!allowed.includes(status)) return res.status(400).json({ error: 'Invalid status.' });
+        await db.prepare('UPDATE author_leads SET status = ? WHERE id = ?').run(status, req.params.id);
         res.json({ ok: true });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
