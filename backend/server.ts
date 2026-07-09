@@ -672,7 +672,7 @@ app.get('/api/jobs/:id/status', requireRole(['admin']), async (req, res) => {
 
 // Get all papers (approved). Enriched with source/license/field for public filtering.
 app.get('/api/papers', async (req, res) => {
-    const { search, topic, field, journal } = req.query;
+    const { search, topic, field, journal, origin } = req.query;
     let query = `
     SELECT p.*,
            STRING_AGG(DISTINCT a.name, ', ') as author_names,
@@ -701,6 +701,10 @@ app.get('/api/papers', async (req, res) => {
     if (topic) {
         query += ` AND p.topic = ?`;
         params.push(topic as string);
+    }
+    if (origin === 'original' || origin === 'aggregated') {
+        query += ` AND p.origin = ?`;
+        params.push(origin);
     }
     if (search) {
         query += ` AND (p.title LIKE ? OR p.abstract LIKE ?)`;
@@ -1256,8 +1260,8 @@ app.post('/api/submit-paper', upload.single('pdfFile'), async (req, res) => {
         });
 
         const insertPaper = db.prepare(`
-      INSERT INTO papers (id, title, abstract, topic, file_path, status, doi, license_url) 
-      VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+      INSERT INTO papers (id, title, abstract, topic, file_path, status, doi, license_url, origin)
+      VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, 'original')
     `);
         const insertAuthor = db.prepare(`
       INSERT INTO authors (id, name, institution, email)
@@ -1888,8 +1892,8 @@ app.post('/api/editor/submissions/:id/decision', requireRole(['editor', 'admin']
             const paperId = newId('paper');
             const topic = String(sub.keywords || '').split(',')[0]?.trim() || 'General Submission';
             await db.prepare(`
-              INSERT INTO papers (id, title, abstract, topic, file_path, status)
-              VALUES (?, ?, ?, ?, ?, 'approved')
+              INSERT INTO papers (id, title, abstract, topic, file_path, status, origin)
+              VALUES (?, ?, ?, ?, ?, 'approved', 'original')
             `).run(paperId, sub.title, sub.abstract, topic, sub.manuscript_path || '');
 
             let authorsJson: any[] = [];

@@ -382,6 +382,10 @@ ALTER TABLE papers ADD COLUMN IF NOT EXISTS ai_processed_at TIMESTAMPTZ;
 ALTER TABLE papers ADD COLUMN IF NOT EXISTS ai_tags JSONB;
 ALTER TABLE papers ADD COLUMN IF NOT EXISTS ai_significance TEXT;
 ALTER TABLE papers ADD COLUMN IF NOT EXISTS ai_score INTEGER;
+-- Content provenance: 'original' (published by us via peer review / direct upload)
+-- vs 'aggregated' (ingested open-access papers from other sources). Existing rows
+-- backfill to 'aggregated'. Drives the public original/indexed split + SEO directives.
+ALTER TABLE papers ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'aggregated';
 
 CREATE INDEX IF NOT EXISTS papers_doi_lower_idx
   ON papers (lower(doi))
