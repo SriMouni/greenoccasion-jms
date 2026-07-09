@@ -467,6 +467,9 @@ CREATE INDEX IF NOT EXISTS author_contacts_author_idx
 -- ── Editorial workflow: self-registered authors, submissions, peer review ──
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS full_name TEXT;
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS email TEXT;
+-- Account approval gate: self-registered authors/reviewers start 'pending' and cannot sign
+-- in until an admin approves. Default 'approved' grandfathers existing + admin-created users.
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
 
 CREATE TABLE IF NOT EXISTS submissions (
   id TEXT PRIMARY KEY,

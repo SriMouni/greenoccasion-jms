@@ -393,7 +393,7 @@ app.post('/api/auth/login', async (req, res) => {
             return res.status(400).json({ error: 'Username and password are required' });
         }
 
-        const user = await db.prepare('SELECT id, username, password_hash, password_salt, role FROM app_users WHERE username = ?').get(username) as any;
+        const user = await db.prepare('SELECT id, username, password_hash, password_salt, role, status FROM app_users WHERE username = ?').get(username) as any;
         if (!user) {
             return res.status(401).json({ error: 'Invalid credentials' });
         }
@@ -401,6 +401,14 @@ app.post('/api/auth/login', async (req, res) => {
         const computedHash = hashPassword(password, user.password_salt);
         if (!timingSafeCompare(computedHash, user.password_hash)) {
             return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        // Self-registered authors/reviewers must be approved by an admin before they can sign in.
+        if (user.status === 'pending') {
+            return res.status(403).json({ error: 'Your account is awaiting admin approval. You’ll be able to sign in once it’s approved.' });
+        }
+        if (user.status === 'rejected') {
+            return res.status(403).json({ error: 'This account request was not approved. Please contact the editorial office.' });
         }
 
         const expiresAt = Date.now() + SESSION_TTL_MS;
@@ -1558,7 +1566,8 @@ const setSessionCookie = (
     );
 };
 
-// Self-registration — creates an author account and logs in.
+// Self-registration — creates a PENDING author/reviewer account. No auto-login: an admin must
+// approve the account before the person can sign in.
 app.post('/api/auth/register', async (req, res) => {
     try {
         const { fullName, email, password, role } = req.body || {};
@@ -1575,12 +1584,11 @@ app.post('/api/auth/register', async (req, res) => {
         const passwordHash = hashPassword(String(password), salt);
         const userId = newId('U');
         await db.prepare(`
-          INSERT INTO app_users (id, username, password_hash, password_salt, role, full_name, email)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO app_users (id, username, password_hash, password_salt, role, full_name, email, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
         `).run(userId, username, passwordHash, salt, requestedRole, fullName || null, username);
 
-        setSessionCookie(res, { userId, username, role: requestedRole });
-        res.json({ user: { id: userId, username, role: requestedRole, fullName: fullName || null } });
+        res.json({ pending: true, role: requestedRole, message: 'Your account has been created and is awaiting admin approval.' });
     } catch (err: any) {
         res.status(500).json({ error: err.message });
     }
@@ -2269,7 +2277,7 @@ app.post('/api/journals/:id/topics', requireRole(['admin']), async (req, res) =>
 // Admin: user + role management (promote authors to reviewer/editor).
 app.get('/api/admin/users', requireRole(['admin']), async (_req, res) => {
     try {
-        const rows = await db.prepare('SELECT id, username, full_name, email, role, created_at FROM app_users ORDER BY created_at DESC').all();
+        const rows = await db.prepare('SELECT id, username, full_name, email, role, status, created_at FROM app_users ORDER BY (status = \'pending\') DESC, created_at DESC').all();
         res.json(rows);
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -2280,6 +2288,16 @@ app.post('/api/admin/users/:id/role', requireRole(['admin']), async (req, res) =
         if (!['admin', 'editor', 'reviewer', 'author'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
         await db.prepare('UPDATE app_users SET role = ? WHERE id = ?').run(role, req.params.id);
         res.json({ ok: true });
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Admin: approve or reject a pending self-registered account.
+app.post('/api/admin/users/:id/approval', requireRole(['admin']), async (req, res) => {
+    try {
+        const { approve } = req.body || {};
+        const status = approve ? 'approved' : 'rejected';
+        await db.prepare('UPDATE app_users SET status = ? WHERE id = ?').run(status, req.params.id);
+        res.json({ ok: true, status });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
