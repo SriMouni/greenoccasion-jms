@@ -1259,9 +1259,13 @@ app.post('/api/submit-paper', upload.single('pdfFile'), async (req, res) => {
             blobStream.end(req.file!.buffer);
         });
 
+        // Origin: this is a submission form, so default to 'original'; allow the
+        // admin to flag a manual add as 'aggregated' when uploading external content.
+        const origin = req.body.origin === 'aggregated' ? 'aggregated' : 'original';
+
         const insertPaper = db.prepare(`
       INSERT INTO papers (id, title, abstract, topic, file_path, status, doi, license_url, origin)
-      VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, 'original')
+      VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
     `);
         const insertAuthor = db.prepare(`
       INSERT INTO authors (id, name, institution, email)
@@ -1273,7 +1277,7 @@ app.post('/api/submit-paper', upload.single('pdfFile'), async (req, res) => {
     `);
 
         const transaction = db.transaction(async () => {
-            await insertPaper.run(paperId, title, abstract, topic, fileName, req.body.doi || null, req.body.licenseUrl || null);
+            await insertPaper.run(paperId, title, abstract, topic, fileName, req.body.doi || null, req.body.licenseUrl || null, origin);
             await insertAuthor.run(authorId, authorName, authorInstitution || 'Independent', authorEmail);
             await linkAuthor.run(paperId, authorId);
         });
@@ -2072,11 +2076,14 @@ const deletePaperCascade = async (paperId: string) => {
 // Change a paper's topic and/or journal (admin). journalId '' or null => staging.
 app.patch('/api/admin/papers/:id', requireRole(['admin']), async (req, res) => {
     try {
-        const { topic, journalId } = req.body || {};
+        const { topic, journalId, origin } = req.body || {};
         const paper = await db.prepare('SELECT id FROM papers WHERE id = ?').get(req.params.id);
         if (!paper) return res.status(404).json({ error: 'Paper not found' });
         if (typeof topic === 'string' && topic.trim()) {
             await db.prepare('UPDATE papers SET topic = ? WHERE id = ?').run(topic.trim(), req.params.id);
+        }
+        if (origin === 'original' || origin === 'aggregated') {
+            await db.prepare('UPDATE papers SET origin = ? WHERE id = ?').run(origin, req.params.id);
         }
         if (journalId !== undefined) {
             const jid = journalId ? String(journalId) : null;
@@ -2134,7 +2141,7 @@ app.get('/api/journals/:id', requireRole(['editor', 'admin']), async (req, res) 
         `).all(req.params.id, req.params.id);
         // Papers mapped into this journal, so the admin can see topics and the papers under each.
         const papers = await db.prepare(`
-          SELECT id, title, topic, status FROM papers
+          SELECT id, title, topic, status, origin FROM papers
           WHERE journal_id = ? ORDER BY topic NULLS LAST, created_at DESC
         `).all(req.params.id);
         res.json({ ...journal, topics, authors, papers });

@@ -4,7 +4,7 @@ import { ArrowLeft, FileText, Loader2, Pencil, Trash2, Users } from 'lucide-reac
 
 type Topic = { id: string; name: string; slug: string; parent_id: string | null };
 type Author = { id: string; full_name: string | null; email: string | null; submissions: number };
-type Paper = { id: string; title: string; topic: string | null; status: string };
+type Paper = { id: string; title: string; topic: string | null; status: string; origin?: string | null };
 type Journal = {
   id: string;
   name: string;
@@ -41,6 +41,7 @@ export const JournalDetail = () => {
   const [paperEdit, setPaperEdit] = useState<string | null>(null);
   const [paperTopic, setPaperTopic] = useState('');
   const [paperJournal, setPaperJournal] = useState('');
+  const [paperOrigin, setPaperOrigin] = useState('aggregated');
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ name: '', description: '', acronym: '', status: 'active', theme: 'default' });
   const [busy, setBusy] = useState(false);
@@ -103,12 +104,13 @@ export const JournalDetail = () => {
     setPaperEdit(p.id);
     setPaperTopic(p.topic || '');
     setPaperJournal(id || '');
+    setPaperOrigin(p.origin === 'original' ? 'original' : 'aggregated');
   };
   const savePaper = async (e: FormEvent, p: Paper) => {
     e.preventDefault();
     setBusy(true);
     try {
-      await api(`/api/admin/papers/${p.id}`, 'PATCH', { topic: paperTopic, journalId: paperJournal });
+      await api(`/api/admin/papers/${p.id}`, 'PATCH', { topic: paperTopic, journalId: paperJournal, origin: paperOrigin });
       setPaperEdit(null);
       load();
     } catch (err: any) { alert(err.message); } finally { setBusy(false); }
@@ -233,16 +235,21 @@ export const JournalDetail = () => {
                       <li key={p.id} className="border-b border-outline-variant/40 py-2 last:border-0">
                         <div className="flex items-center justify-between gap-3">
                           <span className="min-w-0 flex-1 truncate text-sm text-on-surface">{p.title}</span>
+                          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${p.origin === 'original' ? 'bg-primary text-on-primary' : 'bg-surface-container-high text-on-surface-variant'}`}>{p.origin === 'original' ? 'Original' : 'Indexed'}</span>
                           <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${p.status === 'approved' ? 'bg-secondary-container text-on-secondary-container' : 'bg-surface-container-high text-on-surface-variant'}`}>{p.status}</span>
-                          <button type="button" title="Change topic / journal" onClick={() => startPaperEdit(p)} className="rounded p-1 text-on-surface-variant hover:bg-surface-container hover:text-primary"><Pencil className="h-3.5 w-3.5" /></button>
+                          <button type="button" title="Change topic / journal / origin" onClick={() => startPaperEdit(p)} className="rounded p-1 text-on-surface-variant hover:bg-surface-container hover:text-primary"><Pencil className="h-3.5 w-3.5" /></button>
                           <button type="button" title="Delete paper" onClick={() => deletePaper(p)} className="rounded p-1 text-on-surface-variant hover:bg-error-container/40 hover:text-error"><Trash2 className="h-3.5 w-3.5" /></button>
                         </div>
                         {paperEdit === p.id && (
-                          <form onSubmit={(e) => savePaper(e, p)} className="mt-2 grid gap-2 rounded-md bg-surface-container p-3 sm:grid-cols-[1fr_1fr_auto]">
+                          <form onSubmit={(e) => savePaper(e, p)} className="mt-2 grid gap-2 rounded-md bg-surface-container p-3 sm:grid-cols-[1fr_1fr_1fr_auto]">
                             <input value={paperTopic} onChange={(e) => setPaperTopic(e.target.value)} placeholder="Topic" className={field} />
                             <select value={paperJournal} onChange={(e) => setPaperJournal(e.target.value)} className={field}>
                               <option value="">→ Staging (unassigned)</option>
                               {journals.map((jr) => <option key={jr.id} value={jr.id}>{jr.name}</option>)}
+                            </select>
+                            <select value={paperOrigin} onChange={(e) => setPaperOrigin(e.target.value)} className={field} title="Content origin">
+                              <option value="aggregated">Indexed (aggregated)</option>
+                              <option value="original">Original (published by us)</option>
                             </select>
                             <div className="flex gap-1">
                               <button type="submit" disabled={busy} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-on-primary disabled:opacity-50">Save</button>
