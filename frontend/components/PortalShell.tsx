@@ -1,6 +1,6 @@
-import { type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Link, NavLink } from 'react-router-dom';
-import { LogOut } from 'lucide-react';
+import { LogOut, Menu, X } from 'lucide-react';
 import { logout, type Role } from '../lib/portal';
 import { navForRole, ROLE_LABEL } from '../lib/nav';
 import { Logo } from './Logo';
@@ -20,13 +20,26 @@ export const PortalShell = ({
   children: ReactNode;
 }) => {
   const items = navForRole(role);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-surface-bright">
-      {/* Sidebar */}
-      <aside className="fixed left-0 top-0 flex h-screen w-[260px] flex-col border-r border-outline-variant bg-surface-container">
-        <div className="border-b border-outline-variant px-6 py-6">
+      {/* Backdrop (mobile only) */}
+      {sidebarOpen && (
+        <button type="button" aria-label="Close menu" onClick={() => setSidebarOpen(false)} className="fixed inset-0 z-30 bg-ink/40 lg:hidden" />
+      )}
+
+      {/* Sidebar — drawer on mobile, fixed on desktop */}
+      <aside
+        className={`fixed left-0 top-0 z-40 flex h-screen w-[260px] max-w-[85vw] flex-col border-r border-outline-variant bg-surface-container transition-transform duration-200 lg:translate-x-0 ${
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex items-center justify-between border-b border-outline-variant px-6 py-6">
           <Logo size={28} subtitle={ROLE_LABEL[role]} />
+          <button type="button" onClick={() => setSidebarOpen(false)} className="rounded-lg p-1.5 text-on-surface-variant hover:bg-surface-container-high lg:hidden" aria-label="Close menu">
+            <X className="h-5 w-5" />
+          </button>
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-5">
@@ -37,6 +50,7 @@ export const PortalShell = ({
                 key={item.to}
                 to={item.to}
                 end={item.end}
+                onClick={() => setSidebarOpen(false)}
                 className={({ isActive }) =>
                   `flex items-center gap-3 rounded-lg px-4 py-3 text-sm transition-colors ${
                     isActive
@@ -74,10 +88,18 @@ export const PortalShell = ({
       </aside>
 
       {/* Main */}
-      <main className="ml-[260px] min-h-screen bg-surface-bright">
-        <div className="mx-auto max-w-5xl px-8 py-8">
+      <main className="min-h-screen bg-surface-bright lg:ml-[260px]">
+        {/* Mobile top bar with menu toggle */}
+        <div className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-outline-variant bg-surface-bright/90 px-4 backdrop-blur-md lg:hidden">
+          <button type="button" onClick={() => setSidebarOpen(true)} className="rounded-lg p-1.5 text-on-surface-variant hover:bg-surface-container" aria-label="Open menu">
+            <Menu className="h-5 w-5" />
+          </button>
+          <span className="truncate text-sm font-semibold text-on-surface">{title}</span>
+        </div>
+
+        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-8 sm:py-8">
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-            <h1 className="font-serif text-3xl font-bold text-on-surface">{title}</h1>
+            <h1 className="hidden font-serif text-3xl font-bold text-on-surface lg:block">{title}</h1>
             {actions}
           </div>
           {children}
