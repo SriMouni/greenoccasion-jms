@@ -12,7 +12,19 @@ import nodemailer, { type Transporter } from 'nodemailer';
 // Common:
 //   LEADS_NOTIFY_EMAIL   — where admin notifications go (default admin@greenoccasion.in)
 
-type SendArgs = { to: string; subject: string; html: string; replyTo?: string };
+type SendArgs = { to: string; subject: string; html: string; replyTo?: string; text?: string };
+
+// Crude HTML→text fallback so every email has a plain-text part (helps spam scoring).
+const htmlToText = (html: string): string =>
+  String(html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<\/(p|div|tr|h[1-6])>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 
 const useSmtp = (): boolean => Boolean(process.env.SMTP_HOST);
 const useResend = (): boolean => Boolean(process.env.RESEND_API_KEY);
@@ -45,14 +57,25 @@ const fromAddress = (): string =>
   process.env.SMTP_USER ||
   'The Carbon Review <onboarding@resend.dev>';
 
-export const sendMail = async ({ to, subject, html, replyTo }: SendArgs): Promise<{ ok: boolean; skipped?: boolean; error?: string }> => {
+export const sendMail = async ({ to, subject, html, replyTo, text }: SendArgs): Promise<{ ok: boolean; skipped?: boolean; error?: string }> => {
+  // Deliverability: include a plain-text alternative + a one-click List-Unsubscribe
+  // header (Gmail/Outlook now weigh these heavily for anything bulk-looking).
+  const unsub = `<mailto:${notifyEmail()}?subject=unsubscribe>`;
   // Prefer Resend (HTTPS/443) — reliable on PaaS like Render that block outbound SMTP.
   if (useResend()) {
     try {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: fromAddress(), to, subject, html, ...(replyTo ? { reply_to: replyTo } : {}) }),
+        body: JSON.stringify({
+          from: fromAddress(),
+          to,
+          subject,
+          html,
+          text: text || htmlToText(html),
+          ...(replyTo ? { reply_to: replyTo } : {}),
+          headers: { 'List-Unsubscribe': unsub, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+        }),
       });
       if (!res.ok) {
         const detail = await res.text().catch(() => '');
@@ -68,7 +91,11 @@ export const sendMail = async ({ to, subject, html, replyTo }: SendArgs): Promis
 
   if (useSmtp()) {
     try {
-      await smtpTransport().sendMail({ from: fromAddress(), to, subject, html, replyTo });
+      await smtpTransport().sendMail({
+        from: fromAddress(), to, subject, html, replyTo,
+        text: text || htmlToText(html),
+        headers: { 'List-Unsubscribe': unsub, 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' },
+      });
       return { ok: true };
     } catch (err: any) {
       console.error('[mailer] SMTP send failed:', err?.message);

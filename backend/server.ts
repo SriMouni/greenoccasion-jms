@@ -2294,7 +2294,7 @@ app.post('/api/admin/outreach/send', requireRole(['admin']), async (req, res) =>
         for (let i = 0; i < capped.length; i += 5) {
             const batch = capped.slice(i, i + 5);
             const results = await Promise.all(batch.map((email) =>
-                sendMail({ to: email, subject: String(subject), html, replyTo: notifyEmail() }).then((r) => ({ email, r }))
+                sendMail({ to: email, subject: String(subject), html, text: String(message), replyTo: notifyEmail() }).then((r) => ({ email, r }))
             ));
             for (const { email, r } of results) {
                 if (r.ok) sent += 1;
