@@ -8,6 +8,7 @@ import {
   Inbox,
   LayoutDashboard,
   Mail,
+  Send,
   Settings,
   Users,
   type LucideIcon,
@@ -44,6 +45,7 @@ export const navForRole = (role: Role): NavItem[] => {
         { label: 'Journals', to: '/admin/journals', icon: BookOpen, group: 'Publishing' },
         { label: 'Submissions', to: '/admin/submissions', icon: Inbox, group: 'Publishing' },
         { label: 'Author Leads', to: '/admin/leads', icon: Mail, group: 'Outreach' },
+        { label: 'Send Emails', to: '/admin/outreach', icon: Send, group: 'Outreach' },
         { label: 'Users', to: '/admin/users', icon: Users, group: 'Account' },
         { label: 'Settings', to: '/admin/settings', icon: Settings, group: 'Account' },
       ];

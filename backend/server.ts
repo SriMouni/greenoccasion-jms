@@ -39,6 +39,11 @@ dotenv.config();
 // DB module runs schema initialization
 import { db, schemaReady } from './src/db/schema.ts';
 import { sendMail, notifyEmail, isMailerConfigured } from './src/mailer.ts';
+import { renderBrandedEmail, textToHtml } from './src/email-templates.ts';
+
+const JOURNAL_NAME = 'The Carbon Review';
+const REGISTER_URL = (process.env.JMS_PUBLIC_URL || 'https://jms.greenoccasion.in') + '/admin/register';
+const SUBMIT_URL = (process.env.PUBLIC_SITE_URL || 'https://thecarbonreview.org') + '/submit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2232,24 +2237,72 @@ app.post('/api/admin/author-leads/:id/email', requireRole(['admin']), async (req
         `).get(req.params.id) as any;
         if (!lead) return res.status(404).json({ error: 'Lead not found' });
 
-        const journalName = lead.journal_name || 'The Carbon Review';
+        const journalName = lead.journal_name || JOURNAL_NAME;
         const greeting = lead.name ? `Dear ${String(lead.name).replace(/[<>]/g, '')}` : 'Dear Researcher';
         const subject = String(req.body?.subject || `Invitation to submit to ${journalName}`);
-        const body = req.body?.message
-            ? `<p>${String(req.body.message).replace(/[<>]/g, '').replace(/\n/g, '<br/>')}</p>`
-            : `<p>${greeting},</p>
-               <p>Thank you for your interest in publishing with <b>${journalName}</b>, an open-access,
-               peer-reviewed journal on climate change, carbon, and the sustainable-future transition.</p>
-               <p>We'd be glad to consider an original research article, review, or perspective from you.
-               You can submit through our platform, and we're happy to answer any questions on scope,
-               format, or timelines — simply reply to this email.</p>
-               <p>Warm regards,<br/>The Editorial Team · ${journalName}</p>`;
+        const bodyHtml = req.body?.message
+            ? textToHtml(String(req.body.message))
+            : `${greeting},<br/><br/>
+               Thank you for your interest in publishing with <b>${journalName}</b>, an open-access,
+               peer-reviewed journal on climate change, carbon, and the sustainable-future transition.<br/><br/>
+               We'd be glad to consider an original research article, review, or perspective from you.
+               You can register and submit through our platform, and we're happy to answer any questions
+               on scope, format, or timelines — simply reply to this email.<br/><br/>
+               Warm regards,<br/>The Editorial Team`;
+        const html = renderBrandedEmail({
+            journalName,
+            heading: req.body?.message ? undefined : `Invitation to submit to ${journalName}`,
+            bodyHtml,
+            cta: { label: 'Register & Submit', url: REGISTER_URL },
+            cta2: { label: 'Browse the journal', url: SUBMIT_URL },
+        });
 
-        const result = await sendMail({ to: lead.email, subject, html: body, replyTo: notifyEmail() });
+        const result = await sendMail({ to: lead.email, subject, html, replyTo: notifyEmail() });
         if (result.ok) {
             await db.prepare(`UPDATE author_leads SET status = 'contacted' WHERE id = ? AND status = 'new'`).run(req.params.id);
         }
         res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Admin: bulk outreach — paste comma/newline-separated emails, send each an
+// individual branded email (register + submit CTAs). Capped to the daily quota.
+app.post('/api/admin/outreach/send', requireRole(['admin']), async (req, res) => {
+    try {
+        const { emails, subject, message, includeCta } = req.body || {};
+        if (!subject || !String(subject).trim()) return res.status(400).json({ error: 'Subject is required.' });
+        if (!message || !String(message).trim()) return res.status(400).json({ error: 'Message is required.' });
+
+        const parsed = String(emails || '').split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
+        const valid = Array.from(new Set(parsed)).filter((e) => EMAIL_RE.test(e));
+        if (valid.length === 0) return res.status(400).json({ error: 'No valid email addresses found.' });
+
+        const CAP = 100; // aligns with the free provider daily quota
+        const capped = valid.slice(0, CAP);
+        const bodyHtml = textToHtml(String(message));
+        const html = renderBrandedEmail({
+            journalName: JOURNAL_NAME,
+            heading: String(subject),
+            bodyHtml,
+            cta: includeCta === false ? undefined : { label: 'Register & Submit a Paper', url: REGISTER_URL },
+            cta2: includeCta === false ? undefined : { label: 'Explore the journal', url: SUBMIT_URL },
+        });
+
+        let sent = 0;
+        const failures: Array<{ email: string; error: string }> = [];
+        // Small concurrency to stay responsive without hammering the provider.
+        for (let i = 0; i < capped.length; i += 5) {
+            const batch = capped.slice(i, i + 5);
+            const results = await Promise.all(batch.map((email) =>
+                sendMail({ to: email, subject: String(subject), html, replyTo: notifyEmail() }).then((r) => ({ email, r }))
+            ));
+            for (const { email, r } of results) {
+                if (r.ok) sent += 1;
+                else failures.push({ email, error: r.skipped ? 'email not configured' : (r.error || 'failed') });
+            }
+        }
+
+        res.json({ total: valid.length, attempted: capped.length, sent, failed: failures.length, failures, cappedAt: valid.length > CAP ? CAP : null });
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

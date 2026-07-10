@@ -19,6 +19,7 @@ import { EditorSubmissions } from './pages/EditorSubmissions';
 import { EditorSubmissionDetail } from './pages/EditorSubmissionDetail';
 import { AdminUsers } from './pages/AdminUsers';
 import { AdminLeads } from './pages/AdminLeads';
+import { AdminOutreach } from './pages/AdminOutreach';
 import { JournalSettings } from './pages/JournalSettings';
 import { JournalsPage } from './pages/JournalsPage';
 import { JournalDetail } from './pages/JournalDetail';
@@ -79,6 +80,7 @@ export default function AdminApp() {
           <Route path="submissions/:id" element={<EditorSubmissionDetail />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="leads" element={<AdminLeads />} />
+          <Route path="outreach" element={<AdminOutreach />} />
           <Route path="settings" element={<JournalSettings />} />
         </Route>
 
