@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Loader2, Mail, AlertTriangle, Sparkles } from 'lucide-react';
+import { Loader2, Mail, AlertTriangle, Sparkles, Send } from 'lucide-react';
 
 type Lead = {
   id: string;
@@ -90,6 +90,28 @@ export const AdminLeads = () => {
     } catch { setHarvesting(false); }
   };
 
+  const [emailing, setEmailing] = useState('');
+  const [sentMsg, setSentMsg] = useState<Record<string, string>>({});
+
+  const sendInvite = async (id: string) => {
+    setEmailing(id);
+    setSentMsg((m) => ({ ...m, [id]: '' }));
+    try {
+      const r = await fetch(`/api/admin/author-leads/${id}/email`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const d = await r.json().catch(() => ({}));
+      if (d.ok) {
+        setSentMsg((m) => ({ ...m, [id]: '✓ Sent' }));
+        setLeads((ls) => ls.map((x) => (x.id === id && x.status === 'new' ? { ...x, status: 'contacted' } : x)));
+      } else {
+        setSentMsg((m) => ({ ...m, [id]: `✗ ${d.skipped ? 'Email not configured' : (d.error || 'failed')}` }));
+      }
+    } catch (e: any) {
+      setSentMsg((m) => ({ ...m, [id]: `✗ ${e.message}` }));
+    } finally {
+      setEmailing('');
+    }
+  };
+
   const setStatus = async (id: string, status: string) => {
     setSaving(id);
     try {
@@ -143,13 +165,14 @@ export const AdminLeads = () => {
               <th className="px-5 py-3 font-semibold">Interest</th>
               <th className="px-5 py-3 font-semibold">Received</th>
               <th className="px-5 py-3 font-semibold">Status</th>
+              <th className="px-5 py-3 font-semibold">Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-outline-variant/60">
             {loading ? (
-              <tr><td colSpan={5} className="px-5 py-12 text-center text-on-surface-variant"><span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</span></td></tr>
+              <tr><td colSpan={6} className="px-5 py-12 text-center text-on-surface-variant"><span className="inline-flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</span></td></tr>
             ) : leads.length === 0 ? (
-              <tr><td colSpan={5} className="px-5 py-12 text-center text-on-surface-variant">No leads yet. They'll appear here as authors submit the popup.</td></tr>
+              <tr><td colSpan={6} className="px-5 py-12 text-center text-on-surface-variant">No leads yet. They'll appear here as authors submit the popup.</td></tr>
             ) : (
               leads.map((l) => (
                 <tr key={l.id} className={`align-top hover:bg-surface-container-low ${l.status === 'new' ? 'bg-primary/5' : ''}`}>
@@ -177,6 +200,18 @@ export const AdminLeads = () => {
                     >
                       {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
+                  </td>
+                  <td className="px-5 py-4">
+                    <button
+                      type="button"
+                      onClick={() => sendInvite(l.id)}
+                      disabled={emailing === l.id}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant px-2.5 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-surface-container disabled:opacity-50"
+                    >
+                      {emailing === l.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                      {l.status === 'new' ? 'Send invite' : 'Resend'}
+                    </button>
+                    {sentMsg[l.id] && <div className="mt-1 text-[11px] text-on-surface-variant">{sentMsg[l.id]}</div>}
                   </td>
                 </tr>
               ))

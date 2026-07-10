@@ -2222,6 +2222,37 @@ app.patch('/api/admin/author-leads/:id', requireRole(['admin']), async (req, res
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// Admin: email a lead an invitation to submit (or a custom message). Marks 'contacted'.
+app.post('/api/admin/author-leads/:id/email', requireRole(['admin']), async (req, res) => {
+    try {
+        const lead = await db.prepare(`
+          SELECT l.*, j.name AS journal_name
+          FROM author_leads l LEFT JOIN journals j ON j.id = l.journal_id
+          WHERE l.id = ?
+        `).get(req.params.id) as any;
+        if (!lead) return res.status(404).json({ error: 'Lead not found' });
+
+        const journalName = lead.journal_name || 'The Carbon Review';
+        const greeting = lead.name ? `Dear ${String(lead.name).replace(/[<>]/g, '')}` : 'Dear Researcher';
+        const subject = String(req.body?.subject || `Invitation to submit to ${journalName}`);
+        const body = req.body?.message
+            ? `<p>${String(req.body.message).replace(/[<>]/g, '').replace(/\n/g, '<br/>')}</p>`
+            : `<p>${greeting},</p>
+               <p>Thank you for your interest in publishing with <b>${journalName}</b>, an open-access,
+               peer-reviewed journal on climate change, carbon, and the sustainable-future transition.</p>
+               <p>We'd be glad to consider an original research article, review, or perspective from you.
+               You can submit through our platform, and we're happy to answer any questions on scope,
+               format, or timelines — simply reply to this email.</p>
+               <p>Warm regards,<br/>The Editorial Team · ${journalName}</p>`;
+
+        const result = await sendMail({ to: lead.email, subject, html: body, replyTo: notifyEmail() });
+        if (result.ok) {
+            await db.prepare(`UPDATE author_leads SET status = 'contacted' WHERE id = ? AND status = 'new'`).run(req.params.id);
+        }
+        res.json(result);
+    } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ── Journals (multi-journal foundation) ──
 const slugify = (s: string) =>
     String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'journal';
