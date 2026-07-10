@@ -24,9 +24,10 @@ export const AdminOutreach = () => {
   const [error, setError] = useState('');
 
   const count = useMemo(() => {
-    const parsed = emails.split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter(Boolean);
-    const valid = Array.from(new Set(parsed)).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
-    return { total: new Set(parsed).size, valid: valid.length };
+    const parsed: string[] = emails.split(/[\s,;]+/).map((e) => e.trim().toLowerCase()).filter((e) => e.length > 0);
+    const unique: string[] = Array.from(new Set(parsed));
+    const valid = unique.filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+    return { total: unique.length, valid: valid.length };
   }, [emails]);
 
   const send = async () => {
