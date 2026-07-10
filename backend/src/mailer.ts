@@ -46,16 +46,7 @@ const fromAddress = (): string =>
   'The Carbon Review <onboarding@resend.dev>';
 
 export const sendMail = async ({ to, subject, html, replyTo }: SendArgs): Promise<{ ok: boolean; skipped?: boolean; error?: string }> => {
-  if (useSmtp()) {
-    try {
-      await smtpTransport().sendMail({ from: fromAddress(), to, subject, html, replyTo });
-      return { ok: true };
-    } catch (err: any) {
-      console.error('[mailer] SMTP send failed:', err?.message);
-      return { ok: false, error: err?.message };
-    }
-  }
-
+  // Prefer Resend (HTTPS/443) — reliable on PaaS like Render that block outbound SMTP.
   if (useResend()) {
     try {
       const res = await fetch('https://api.resend.com/emails', {
@@ -75,7 +66,17 @@ export const sendMail = async ({ to, subject, html, replyTo }: SendArgs): Promis
     }
   }
 
-  console.warn('[mailer] No provider configured (set SMTP_HOST or RESEND_API_KEY) — email skipped.');
+  if (useSmtp()) {
+    try {
+      await smtpTransport().sendMail({ from: fromAddress(), to, subject, html, replyTo });
+      return { ok: true };
+    } catch (err: any) {
+      console.error('[mailer] SMTP send failed:', err?.message);
+      return { ok: false, error: err?.message };
+    }
+  }
+
+  console.warn('[mailer] No provider configured (set RESEND_API_KEY or SMTP_HOST) — email skipped.');
   return { ok: false, skipped: true };
 };
 
