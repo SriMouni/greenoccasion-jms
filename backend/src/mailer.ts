@@ -22,7 +22,7 @@ export const isMailerConfigured = (): boolean => useSmtp() || useResend();
 let cachedTransport: Transporter | null = null;
 const smtpTransport = (): Transporter => {
   if (cachedTransport) return cachedTransport;
-  cachedTransport = nodemailer.createTransport({
+  const smtpOptions: Record<string, unknown> = {
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT || 587),
     secure: process.env.SMTP_SECURE === 'true', // true for 465, false for 587/STARTTLS
@@ -34,7 +34,8 @@ const smtpTransport = (): Transporter => {
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000,
-  });
+  };
+  cachedTransport = nodemailer.createTransport(smtpOptions as never);
   return cachedTransport;
 };
 
