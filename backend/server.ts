@@ -2181,6 +2181,22 @@ app.post('/api/admin/authors/harvest-contacts', requireRole(['admin']), async (r
     } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// Admin: send a test email and return the real result (surfaces SMTP errors inline
+// instead of only in the server logs). Used to verify provider config.
+app.post('/api/admin/mailer/test', requireRole(['admin']), async (req, res) => {
+    try {
+        const to = (req.body?.to && EMAIL_RE.test(String(req.body.to))) ? String(req.body.to) : notifyEmail();
+        const result = await sendMail({
+            to,
+            subject: 'The Carbon Review — SMTP test',
+            html: '<p>This is a test email. If you received it, outbound email is configured correctly.</p>',
+        });
+        res.json({ ...result, configured: isMailerConfigured(), to });
+    } catch (err: any) {
+        res.status(500).json({ ok: false, error: err.message, configured: isMailerConfigured() });
+    }
+});
+
 // Admin: harvested corresponding-author emails (with the author they belong to).
 app.get('/api/admin/author-contacts', requireRole(['admin']), async (_req, res) => {
     try {

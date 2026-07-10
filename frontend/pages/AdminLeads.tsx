@@ -43,6 +43,24 @@ export const AdminLeads = () => {
   const [saving, setSaving] = useState('');
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [harvesting, setHarvesting] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<string>('');
+
+  const sendTest = async () => {
+    setTesting(true);
+    setTestResult('');
+    try {
+      const r = await fetch('/api/admin/mailer/test', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const d = await r.json().catch(() => ({}));
+      if (d.ok) setTestResult(`✓ Sent to ${d.to}. Check that inbox (and spam).`);
+      else if (d.skipped) setTestResult('⚠ No provider configured — SMTP_HOST / RESEND_API_KEY not set on the server.');
+      else setTestResult(`✗ Failed: ${d.error || 'unknown error'}`);
+    } catch (e: any) {
+      setTestResult(`✗ Request failed: ${e.message}`);
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const load = () => {
     setLoading(true);
@@ -98,12 +116,23 @@ export const AdminLeads = () => {
         </p>
       </div>
 
-      {!mailerConfigured && (
-        <div className="flex items-start gap-3 rounded-lg border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-on-surface">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-          <span>Email notifications are off — leads are still captured here. Set <code className="font-mono">RESEND_API_KEY</code> in the backend env to get an email on each new lead.</span>
-        </div>
-      )}
+      <div className="flex flex-wrap items-center gap-3 rounded-lg border border-outline-variant bg-surface-container-lowest px-4 py-3 text-sm">
+        {!mailerConfigured && (
+          <span className="flex items-center gap-2 text-on-surface">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-primary" />
+            Email is off — leads still captured. Set SMTP (or Resend) env on the server.
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={sendTest}
+          disabled={testing}
+          className="inline-flex items-center gap-2 rounded-lg border border-outline-variant px-3 py-1.5 text-xs font-semibold text-on-surface hover:bg-surface-container disabled:opacity-50"
+        >
+          {testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />} Send test email
+        </button>
+        {testResult && <span className="text-xs text-on-surface-variant">{testResult}</span>}
+      </div>
 
       <div className="overflow-x-auto rounded-lg border border-outline-variant bg-surface-container-lowest">
         <table className="w-full text-sm">
