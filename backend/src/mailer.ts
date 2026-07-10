@@ -27,7 +27,10 @@ const smtpTransport = (): Transporter => {
     port: Number(process.env.SMTP_PORT || 587),
     secure: process.env.SMTP_SECURE === 'true', // true for 465, false for 587/STARTTLS
     auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
-    // Fail fast if the host blocks outbound SMTP (common on PaaS) instead of hanging.
+    // Force IPv4 — Render (and many PaaS) have no outbound IPv6 route, so letting Node
+    // pick the IPv6 address for smtp.gmail.com fails with ENETUNREACH.
+    family: 4,
+    // Fail fast if the host blocks outbound SMTP instead of hanging.
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000,
