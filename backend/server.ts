@@ -42,7 +42,14 @@ import { sendMail, notifyEmail, isMailerConfigured } from './src/mailer.ts';
 import { renderPlainEmail } from './src/email-templates.ts';
 
 const JOURNAL_NAME = 'The Carbon Review';
-const REGISTER_URL = (process.env.JMS_PUBLIC_URL || 'https://jms.greenoccasion.in') + '/admin/register';
+const PUBLIC_SITE_URL = process.env.PUBLIC_SITE_URL || 'https://thecarbonreview.org';
+const JMS_URL = process.env.JMS_PUBLIC_URL || 'https://jms.greenoccasion.in';
+const OUTREACH_SECRET = process.env.OUTREACH_SECRET || 'greenoccasion-outreach-v1';
+// Sign the recipient's email so the one-click "I'm interested" link can't be spoofed.
+const interestToken = (email: string) =>
+    crypto.createHmac('sha256', OUTREACH_SECRET).update(email.toLowerCase()).digest('hex').slice(0, 16);
+const interestedUrl = (email: string) =>
+    `${JMS_URL}/api/outreach/interested?email=${encodeURIComponent(email)}&t=${interestToken(email)}`;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2219,7 +2226,7 @@ app.get('/api/admin/author-contacts', requireRole(['admin']), async (_req, res) 
 app.patch('/api/admin/author-leads/:id', requireRole(['admin']), async (req, res) => {
     try {
         const { status } = req.body || {};
-        const allowed = ['new', 'contacted', 'onboarded', 'archived'];
+        const allowed = ['new', 'interested', 'contacted', 'onboarded', 'archived'];
         if (!allowed.includes(status)) return res.status(400).json({ error: 'Invalid status.' });
         await db.prepare('UPDATE author_leads SET status = ? WHERE id = ?').run(status, req.params.id);
         res.json({ ok: true });
@@ -2242,13 +2249,46 @@ app.post('/api/admin/author-leads/:id/email', requireRole(['admin']), async (req
         const message = req.body?.message
             ? String(req.body.message)
             : `${greeting},\n\nThank you for your interest in publishing with ${journalName}, an open-access, peer-reviewed journal on climate change, carbon, and the sustainable-future transition.\n\nWe'd be glad to consider an original research article, review, or perspective from you. You can register and submit through our platform, and I'm happy to answer any questions on scope, format, or timelines — simply reply to this email.\n\nWarm regards,\nThe Editorial Team, ${journalName}`;
-        const { html, text } = renderPlainEmail(message, REGISTER_URL);
+        const { html, text } = renderPlainEmail(message, { siteUrl: PUBLIC_SITE_URL, interestedUrl: interestedUrl(lead.email) });
         const result = await sendMail({ to: lead.email, subject, html, text, replyTo: notifyEmail() });
         if (result.ok) {
             await db.prepare(`UPDATE author_leads SET status = 'contacted' WHERE id = ? AND status = 'new'`).run(req.params.id);
         }
         res.json(result);
     } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// Public: one-click "I'm interested" from an outreach email. Verifies the signed
+// token, records the person as an interested lead, then shows a thank-you page that
+// links to the public site. Mirrors how the "Publish with us" widget stores leads.
+app.get('/api/outreach/interested', async (req, res) => {
+    try {
+        const email = String(req.query.email || '').toLowerCase().trim();
+        const token = String(req.query.t || '');
+        if (!EMAIL_RE.test(email) || token !== interestToken(email)) {
+            return res.status(400).send('<p style="font-family:sans-serif">This link is invalid or has expired.</p>');
+        }
+        const existing = await db.prepare('SELECT id FROM author_leads WHERE email = ? ORDER BY created_at DESC LIMIT 1').get(email) as any;
+        if (existing) {
+            await db.prepare("UPDATE author_leads SET status = 'interested' WHERE id = ?").run(existing.id);
+        } else {
+            await db.prepare(`INSERT INTO author_leads (id, email, source, status) VALUES (?, ?, 'email-outreach', 'interested')`)
+                .run(newId('lead'), email);
+        }
+        res.set('Content-Type', 'text/html').send(`<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Thank you — ${JOURNAL_NAME}</title></head>
+<body style="margin:0;background:#eef2f1;font-family:Arial,Helvetica,sans-serif;color:#111827">
+  <div style="max-width:520px;margin:12vh auto;background:#fff;border-radius:14px;padding:40px 36px;text-align:center;box-shadow:0 2px 12px rgba(4,47,46,0.08)">
+    <div style="font-size:44px;line-height:1">✅</div>
+    <h1 style="font-family:Georgia,serif;font-size:24px;margin:14px 0 8px">Thank you for your interest</h1>
+    <p style="color:#4b5563;line-height:1.6;font-size:15px">We've noted your interest in publishing with <b>${JOURNAL_NAME}</b> and our editorial team will be in touch shortly.</p>
+    <a href="${PUBLIC_SITE_URL}" style="display:inline-block;margin-top:18px;background:#0d9488;color:#fff;text-decoration:none;padding:12px 26px;border-radius:9px;font-weight:bold;font-size:14px">Explore the journal</a>
+  </div>
+</body></html>`);
+    } catch (err: any) {
+        res.status(500).send('<p style="font-family:sans-serif">Something went wrong. Please try again later.</p>');
+    }
 });
 
 // Admin: bulk outreach — paste comma/newline-separated emails, send each an
@@ -2265,16 +2305,18 @@ app.post('/api/admin/outreach/send', requireRole(['admin']), async (req, res) =>
 
         const CAP = 100; // aligns with the free provider daily quota
         const capped = valid.slice(0, CAP);
-        const { html, text } = renderPlainEmail(String(message), includeCta === false ? undefined : REGISTER_URL);
 
         let sent = 0;
         const failures: Array<{ email: string; error: string }> = [];
         // Small concurrency to stay responsive without hammering the provider.
         for (let i = 0; i < capped.length; i += 5) {
             const batch = capped.slice(i, i + 5);
-            const results = await Promise.all(batch.map((email) =>
-                sendMail({ to: email, subject: String(subject), html, text, replyTo: notifyEmail() }).then((r) => ({ email, r }))
-            ));
+            const results = await Promise.all(batch.map((email) => {
+                // Per-recipient email so the "I'm interested" link captures the right person.
+                const { html, text } = renderPlainEmail(String(message),
+                    includeCta === false ? {} : { siteUrl: PUBLIC_SITE_URL, interestedUrl: interestedUrl(email) });
+                return sendMail({ to: email, subject: String(subject), html, text, replyTo: notifyEmail() }).then((r) => ({ email, r }));
+            }));
             for (const { email, r } of results) {
                 if (r.ok) sent += 1;
                 else failures.push({ email, error: r.skipped ? 'email not configured' : (r.error || 'failed') });

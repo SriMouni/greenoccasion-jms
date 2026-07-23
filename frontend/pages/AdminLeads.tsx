@@ -25,11 +25,12 @@ type Contact = {
   orcid: string | null;
 };
 
-const STATUSES = ['new', 'contacted', 'onboarded', 'archived'];
+const STATUSES = ['new', 'interested', 'contacted', 'onboarded', 'archived'];
 
 const statusPill = (s: string) => {
   switch (s) {
     case 'new': return 'bg-primary/10 text-primary';
+    case 'interested': return 'bg-primary text-on-primary';
     case 'contacted': return 'bg-secondary-container text-on-secondary-container';
     case 'onboarded': return 'bg-secondary-container text-on-secondary-container';
     default: return 'bg-surface-container-high text-on-surface-variant';

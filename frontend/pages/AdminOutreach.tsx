@@ -16,7 +16,7 @@ export const AdminOutreach = () => {
   const [emails, setEmails] = useState('');
   const [subject, setSubject] = useState('Invitation to publish with The Carbon Review');
   const [message, setMessage] = useState(
-    'Dear Researcher,\n\nWe invite you to submit your original research to The Carbon Review — an open-access, peer-reviewed journal on climate change, carbon, and the sustainable-future transition.\n\nRegister on our platform to submit an article, review, or perspective. We are happy to answer any questions on scope, format, or timelines.\n\nWarm regards,\nThe Editorial Team'
+    "Dear Researcher,\n\nWe invite you to submit your original research to The Carbon Review — an open-access, peer-reviewed journal on climate change, carbon, pollution, waste, and the sustainable-future transition.\n\nIf you'd be interested in contributing an article, review, or perspective, we'd be glad to hear from you — just click the button below or reply to this email, and our editorial team will follow up.\n\nWarm regards,\nThe Editorial Team, The Carbon Review"
   );
   const [includeCta, setIncludeCta] = useState(true);
   const [sending, setSending] = useState(false);
@@ -88,7 +88,7 @@ export const AdminOutreach = () => {
 
         <label className="flex items-center gap-2 text-sm text-on-surface">
           <input type="checkbox" checked={includeCta} onChange={(e) => setIncludeCta(e.target.checked)} className="h-4 w-4" />
-          Append a plain “Register and submit” link
+          Append the journal link + a one-click “I'm interested” button (captured under Author Leads)
         </label>
 
         <button

@@ -40,12 +40,25 @@ export const renderBrandedEmail = ({ journalName, heading, bodyHtml, cta, cta2, 
 export const textToHtml = (text: string): string =>
   String(text || '').replace(/[<>]/g, (c) => (c === '<' ? '&lt;' : '&gt;')).replace(/\n/g, '<br/>');
 
-// A plain, personal-looking email (no branded header/footer/buttons) so outreach
-// reads like a normal message rather than an advertisement. Optionally appends a
-// plain register link. Returns matching html + text parts.
-export const renderPlainEmail = (message: string, linkUrl?: string): { html: string; text: string } => {
-  const linkHtml = linkUrl ? `<br/><br/>Register and submit here: <a href="${linkUrl}">${linkUrl}</a>` : '';
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#111827">${textToHtml(message)}${linkHtml}</div>`;
-  const text = message + (linkUrl ? `\n\nRegister and submit here: ${linkUrl}` : '');
+// A plain, personal-looking email (no branded header/footer). Optionally appends a
+// link to the journal site and a single "I'm interested" button whose click is
+// captured and stored as a lead. Reads like a normal message, not an advertisement.
+export const renderPlainEmail = (
+  message: string,
+  opts: { siteUrl?: string; interestedUrl?: string } = {}
+): { html: string; text: string } => {
+  const { siteUrl, interestedUrl } = opts;
+  let extraHtml = '';
+  let extraText = '';
+  if (siteUrl) {
+    extraHtml += `<br/><br/>Explore the journal: <a href="${siteUrl}">${siteUrl}</a>`;
+    extraText += `\n\nExplore the journal: ${siteUrl}`;
+  }
+  if (interestedUrl) {
+    extraHtml += `<br/><br/><a href="${interestedUrl}" style="display:inline-block;background:#0d9488;color:#ffffff;text-decoration:none;padding:11px 24px;border-radius:8px;font-weight:bold;font-family:Arial,Helvetica,sans-serif;font-size:14px;">I'm interested</a>`;
+    extraText += `\n\nInterested in submitting? Let us know: ${interestedUrl}`;
+  }
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#111827">${textToHtml(message)}${extraHtml}</div>`;
+  const text = message + extraText;
   return { html, text };
 };
