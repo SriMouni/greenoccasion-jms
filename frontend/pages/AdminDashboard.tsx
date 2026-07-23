@@ -257,7 +257,8 @@ export const AdminDashboard = () => {
   const startJob = async (
     url: string,
     setStarting: (v: boolean) => void,
-    setJobId: (v: string) => void
+    setJobId: (v: string) => void,
+    limit = 25
   ) => {
     setStarting(true);
     setMaintError('');
@@ -265,7 +266,7 @@ export const AdminDashboard = () => {
       const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ limit: 25 }),
+        body: JSON.stringify({ limit }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -282,7 +283,7 @@ export const AdminDashboard = () => {
   };
 
   const backfillPdfs = () => startJob('/api/admin/papers/backfill-pdfs', setPdfStarting, setPdfJobId);
-  const runAiAnalysis = () => startJob('/api/admin/ai/analyze-pending', setAiStarting, setAiJobId);
+  const runAiAnalysis = () => startJob('/api/admin/ai/analyze-pending', setAiStarting, setAiJobId, 100);
   const enrichAuthors = () => startJob('/api/admin/authors/enrich', setEnrichStarting, setEnrichJobId);
 
   const refresh = useCallback(async () => {

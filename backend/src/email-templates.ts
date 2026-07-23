@@ -39,3 +39,13 @@ export const renderBrandedEmail = ({ journalName, heading, bodyHtml, cta, cta2, 
 // Escape user-entered text and preserve line breaks for insertion into the body.
 export const textToHtml = (text: string): string =>
   String(text || '').replace(/[<>]/g, (c) => (c === '<' ? '&lt;' : '&gt;')).replace(/\n/g, '<br/>');
+
+// A plain, personal-looking email (no branded header/footer/buttons) so outreach
+// reads like a normal message rather than an advertisement. Optionally appends a
+// plain register link. Returns matching html + text parts.
+export const renderPlainEmail = (message: string, linkUrl?: string): { html: string; text: string } => {
+  const linkHtml = linkUrl ? `<br/><br/>Register and submit here: <a href="${linkUrl}">${linkUrl}</a>` : '';
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#111827">${textToHtml(message)}${linkHtml}</div>`;
+  const text = message + (linkUrl ? `\n\nRegister and submit here: ${linkUrl}` : '');
+  return { html, text };
+};

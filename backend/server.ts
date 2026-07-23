@@ -39,11 +39,10 @@ dotenv.config();
 // DB module runs schema initialization
 import { db, schemaReady } from './src/db/schema.ts';
 import { sendMail, notifyEmail, isMailerConfigured } from './src/mailer.ts';
-import { renderBrandedEmail, textToHtml } from './src/email-templates.ts';
+import { renderPlainEmail } from './src/email-templates.ts';
 
 const JOURNAL_NAME = 'The Carbon Review';
 const REGISTER_URL = (process.env.JMS_PUBLIC_URL || 'https://jms.greenoccasion.in') + '/admin/register';
-const SUBMIT_URL = (process.env.PUBLIC_SITE_URL || 'https://thecarbonreview.org') + '/submit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2240,24 +2239,11 @@ app.post('/api/admin/author-leads/:id/email', requireRole(['admin']), async (req
         const journalName = lead.journal_name || JOURNAL_NAME;
         const greeting = lead.name ? `Dear ${String(lead.name).replace(/[<>]/g, '')}` : 'Dear Researcher';
         const subject = String(req.body?.subject || `Invitation to submit to ${journalName}`);
-        const bodyHtml = req.body?.message
-            ? textToHtml(String(req.body.message))
-            : `${greeting},<br/><br/>
-               Thank you for your interest in publishing with <b>${journalName}</b>, an open-access,
-               peer-reviewed journal on climate change, carbon, and the sustainable-future transition.<br/><br/>
-               We'd be glad to consider an original research article, review, or perspective from you.
-               You can register and submit through our platform, and we're happy to answer any questions
-               on scope, format, or timelines — simply reply to this email.<br/><br/>
-               Warm regards,<br/>The Editorial Team`;
-        const html = renderBrandedEmail({
-            journalName,
-            heading: req.body?.message ? undefined : `Invitation to submit to ${journalName}`,
-            bodyHtml,
-            cta: { label: 'Register & Submit', url: REGISTER_URL },
-            cta2: { label: 'Browse the journal', url: SUBMIT_URL },
-        });
-
-        const result = await sendMail({ to: lead.email, subject, html, replyTo: notifyEmail() });
+        const message = req.body?.message
+            ? String(req.body.message)
+            : `${greeting},\n\nThank you for your interest in publishing with ${journalName}, an open-access, peer-reviewed journal on climate change, carbon, and the sustainable-future transition.\n\nWe'd be glad to consider an original research article, review, or perspective from you. You can register and submit through our platform, and I'm happy to answer any questions on scope, format, or timelines — simply reply to this email.\n\nWarm regards,\nThe Editorial Team, ${journalName}`;
+        const { html, text } = renderPlainEmail(message, REGISTER_URL);
+        const result = await sendMail({ to: lead.email, subject, html, text, replyTo: notifyEmail() });
         if (result.ok) {
             await db.prepare(`UPDATE author_leads SET status = 'contacted' WHERE id = ? AND status = 'new'`).run(req.params.id);
         }
@@ -2279,14 +2265,7 @@ app.post('/api/admin/outreach/send', requireRole(['admin']), async (req, res) =>
 
         const CAP = 100; // aligns with the free provider daily quota
         const capped = valid.slice(0, CAP);
-        const bodyHtml = textToHtml(String(message));
-        const html = renderBrandedEmail({
-            journalName: JOURNAL_NAME,
-            heading: String(subject),
-            bodyHtml,
-            cta: includeCta === false ? undefined : { label: 'Register & Submit a Paper', url: REGISTER_URL },
-            cta2: includeCta === false ? undefined : { label: 'Explore the journal', url: SUBMIT_URL },
-        });
+        const { html, text } = renderPlainEmail(String(message), includeCta === false ? undefined : REGISTER_URL);
 
         let sent = 0;
         const failures: Array<{ email: string; error: string }> = [];
@@ -2294,7 +2273,7 @@ app.post('/api/admin/outreach/send', requireRole(['admin']), async (req, res) =>
         for (let i = 0; i < capped.length; i += 5) {
             const batch = capped.slice(i, i + 5);
             const results = await Promise.all(batch.map((email) =>
-                sendMail({ to: email, subject: String(subject), html, text: String(message), replyTo: notifyEmail() }).then((r) => ({ email, r }))
+                sendMail({ to: email, subject: String(subject), html, text, replyTo: notifyEmail() }).then((r) => ({ email, r }))
             ));
             for (const { email, r } of results) {
                 if (r.ok) sent += 1;

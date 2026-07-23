@@ -83,12 +83,12 @@ export const AdminOutreach = () => {
         <label className="block">
           <span className="mb-1 block text-sm font-semibold text-on-surface">Message</span>
           <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={9} className={field} />
-          <span className="mt-1 block text-xs text-on-surface-variant">Plain text — it's wrapped in the branded template automatically.</span>
+          <span className="mt-1 block text-xs text-on-surface-variant">Sent as a plain, personal-looking email — exactly what you type, no branded template.</span>
         </label>
 
         <label className="flex items-center gap-2 text-sm text-on-surface">
           <input type="checkbox" checked={includeCta} onChange={(e) => setIncludeCta(e.target.checked)} className="h-4 w-4" />
-          Include “Register &amp; Submit” buttons
+          Append a plain “Register and submit” link
         </label>
 
         <button
