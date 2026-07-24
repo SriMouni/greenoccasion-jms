@@ -14,9 +14,9 @@ const field = 'w-full rounded-lg border border-outline-variant bg-surface px-3 p
 
 export const AdminOutreach = () => {
   const [emails, setEmails] = useState('');
-  const [subject, setSubject] = useState('Invitation to publish with The Carbon Review');
+  const [subject, setSubject] = useState('Invitation to submit to The Carbon Review');
   const [message, setMessage] = useState(
-    "Dear Researcher,\n\nWe invite you to submit your original research to The Carbon Review — an open-access, peer-reviewed journal on climate change, carbon, pollution, waste, and the sustainable-future transition.\n\nIf you'd be interested in contributing an article, review, or perspective, we'd be glad to hear from you — just click the button below or reply to this email, and our editorial team will follow up.\n\nWarm regards,\nThe Editorial Team, The Carbon Review"
+    "Dear Researcher,\n\nI'm writing to invite you to submit your work to The Carbon Review — a newly launched open-access, peer-reviewed journal on climate change, carbon, pollution, waste, and the transition to a sustainable future.\n\nWe are now welcoming submissions for our first issues and would be glad to consider an original research article, review, or perspective from you as one of our founding authors.\n\nWhat this means for you:\n- Open access under a CC BY license — your work is free for everyone to read and cite.\n- Careful, timely peer review by editors active in the field.\n- No submission or publication fees.\n- A newly established journal, currently registering its ISSN.\n\nPlease take a moment to explore the journal, and if it's a fit, share your research with us — just click \"I'm interested\" below or reply to this email, and we'll walk you through the next steps.\n\nWarm regards,\nThe Editorial Team, The Carbon Review"
   );
   const [includeCta, setIncludeCta] = useState(true);
   const [sending, setSending] = useState(false);
