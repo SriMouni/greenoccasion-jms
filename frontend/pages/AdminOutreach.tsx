@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Loader2, Send, AlertTriangle } from 'lucide-react';
+import { Loader2, Send, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 type Result = {
   total: number;
@@ -102,6 +102,15 @@ export const AdminOutreach = () => {
         </button>
 
         {error && <p className="text-sm text-error">{error}</p>}
+        {result && (
+          <div className={`flex items-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold ${result.sent > 0 ? 'bg-secondary-container text-on-secondary-container' : 'bg-error-container text-on-error-container'}`}>
+            {result.sent > 0 ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertTriangle className="h-4 w-4 shrink-0" />}
+            <span>
+              {result.sent > 0 ? `Email sent to ${result.sent} recipient${result.sent === 1 ? '' : 's'}.` : 'No emails were sent.'}
+              {result.failed > 0 ? ` ${result.failed} failed — see details below.` : ''}
+            </span>
+          </div>
+        )}
       </div>
 
       {result && (
