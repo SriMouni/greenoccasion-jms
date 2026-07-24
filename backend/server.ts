@@ -43,7 +43,7 @@ import { renderPlainEmail } from './src/email-templates.ts';
 
 const JOURNAL_NAME = 'The Carbon Review';
 const PUBLIC_SITE_URL = process.env.PUBLIC_SITE_URL || 'https://thecarbonreview.org';
-const JMS_URL = process.env.JMS_PUBLIC_URL || 'https://jms.greenoccasion.in';
+const JMS_URL = process.env.JMS_PUBLIC_URL || 'https://jms.thecarbonreview.org';
 const OUTREACH_SECRET = process.env.OUTREACH_SECRET || 'greenoccasion-outreach-v1';
 // Sign the recipient's email so the one-click "I'm interested" link can't be spoofed.
 const interestToken = (email: string) =>
