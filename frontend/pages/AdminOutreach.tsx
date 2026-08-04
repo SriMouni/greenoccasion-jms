@@ -1,5 +1,17 @@
 import { useMemo, useState } from 'react';
 import { Loader2, Send, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { RichEditor } from '../components/RichEditor';
+
+const DEFAULT_MESSAGE_HTML =
+  `Dear Researcher,<br><br>` +
+  `I hope you're doing well.<br><br>` +
+  `I'm reaching out to personally invite you to contribute to <b>The Carbon Review</b>, a new open-access, peer-reviewed journal launched as a <b>GreenOccasion</b> initiative.<br><br>` +
+  `At GreenOccasion, we believe that impactful sustainability research should be accessible to everyone—not limited by high publication costs or paywalls. Our mission is to provide researchers with a platform to publish their work at <b>no cost or only a minimal cost</b>, while ensuring that every published paper is freely available to readers around the world.<br><br>` +
+  `More importantly, we want to help great research reach <b>millions of people</b>, creating greater awareness and inspiring action on climate change, carbon reduction, pollution, and sustainability.<br><br>` +
+  `As we prepare to launch, it would be an honour to have you as one of our founding authors. We welcome original research articles, reviews, and perspectives.<br><br>` +
+  `If you're interested, simply reply to this email or click <b>"I'm Interested"</b>, and we'll share the submission details.<br><br>` +
+  `Thank you for considering our invitation. We hope you'll join us in making sustainability research more accessible and impactful.<br><br>` +
+  `Warm regards,<br><br><b>The GreenOccasion Team</b><br>The Carbon Review`;
 
 type Result = {
   total: number;
@@ -15,9 +27,7 @@ const field = 'w-full rounded-lg border border-outline-variant bg-surface px-3 p
 export const AdminOutreach = () => {
   const [emails, setEmails] = useState('');
   const [subject, setSubject] = useState('Invitation to submit to The Carbon Review');
-  const [message, setMessage] = useState(
-    "Dear Researcher,\n\nI'm writing to invite you to submit your work to The Carbon Review — a newly launched open-access, peer-reviewed journal on climate change, carbon, pollution, waste, and the transition to a sustainable future.\n\nWe are now welcoming submissions and would be glad to consider an original research article, review, or perspective from you as one of our founding authors.\n\nA few things that matter to authors:\n- Open access under a CC BY license — free to read worldwide, and you keep full copyright.\n- Rigorous, timely peer review.\n- No submission or publication fees.\n\nPlease explore the journal, and if it's a fit, share your research with us — just click \"I'm interested\" below or reply to this email, and we'll follow up with next steps.\n\nWarm regards,\nThe Editorial Team, The Carbon Review"
-  );
+  const [message, setMessage] = useState(DEFAULT_MESSAGE_HTML);
   const [includeCta, setIncludeCta] = useState(true);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
@@ -80,11 +90,11 @@ export const AdminOutreach = () => {
           <input value={subject} onChange={(e) => setSubject(e.target.value)} className={field} />
         </label>
 
-        <label className="block">
+        <div>
           <span className="mb-1 block text-sm font-semibold text-on-surface">Message</span>
-          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={9} className={field} />
-          <span className="mt-1 block text-xs text-on-surface-variant">Sent as a plain, personal-looking email — exactly what you type, no branded template.</span>
-        </label>
+          <RichEditor initialHtml={message} onChange={setMessage} />
+          <span className="mt-1 block text-xs text-on-surface-variant">Use the toolbar to bold text or add links. Sent as a normal, personal-looking email.</span>
+        </div>
 
         <label className="flex items-center gap-2 text-sm text-on-surface">
           <input type="checkbox" checked={includeCta} onChange={(e) => setIncludeCta(e.target.checked)} className="h-4 w-4" />

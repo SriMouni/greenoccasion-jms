@@ -40,11 +40,24 @@ export const renderBrandedEmail = ({ journalName, heading, bodyHtml, cta, cta2, 
 export const textToHtml = (text: string): string =>
   String(text || '').replace(/[<>]/g, (c) => (c === '<' ? '&lt;' : '&gt;')).replace(/\n/g, '<br/>');
 
-// A plain, personal-looking email (no branded header/footer). Optionally appends a
-// link to the journal site and a single "I'm interested" button whose click is
-// captured and stored as a lead. Reads like a normal message, not an advertisement.
+// Strip HTML to a readable plain-text fallback (for the text/* part of the email).
+const htmlToText = (html: string): string =>
+  String(html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<\/(p|div|tr|h[1-6])>/gi, '\n')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+// A plain, personal-looking email (no branded header/footer). `bodyHtml` is the
+// admin-authored message HTML (bold/italic/links from the editor) inserted as-is.
+// Optionally appends a link to the journal site and a single "I'm interested" button
+// whose click is captured and stored as a lead.
 export const renderPlainEmail = (
-  message: string,
+  bodyHtml: string,
   opts: { siteUrl?: string; interestedUrl?: string } = {}
 ): { html: string; text: string } => {
   const { siteUrl, interestedUrl } = opts;
@@ -58,7 +71,7 @@ export const renderPlainEmail = (
     extraHtml += `<br/><br/><a href="${interestedUrl}" style="display:inline-block;background:#0d9488;color:#ffffff;text-decoration:none;padding:11px 24px;border-radius:8px;font-weight:bold;font-family:Arial,Helvetica,sans-serif;font-size:14px;">I'm interested</a>`;
     extraText += `\n\nInterested in submitting? Let us know: ${interestedUrl}`;
   }
-  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#111827">${textToHtml(message)}${extraHtml}</div>`;
-  const text = message + extraText;
+  const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#111827">${bodyHtml}${extraHtml}</div>`;
+  const text = htmlToText(bodyHtml) + extraText;
   return { html, text };
 };

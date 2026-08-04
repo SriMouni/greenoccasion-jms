@@ -39,7 +39,7 @@ dotenv.config();
 // DB module runs schema initialization
 import { db, schemaReady } from './src/db/schema.ts';
 import { sendMail, notifyEmail, isMailerConfigured } from './src/mailer.ts';
-import { renderPlainEmail } from './src/email-templates.ts';
+import { renderPlainEmail, textToHtml } from './src/email-templates.ts';
 
 const JOURNAL_NAME = 'The Carbon Review';
 const PUBLIC_SITE_URL = process.env.PUBLIC_SITE_URL || 'https://thecarbonreview.org';
@@ -2249,7 +2249,9 @@ app.post('/api/admin/author-leads/:id/email', requireRole(['admin']), async (req
         const message = req.body?.message
             ? String(req.body.message)
             : `${greeting},\n\nThank you for your interest in publishing with ${journalName}, an open-access, peer-reviewed journal on climate change, carbon, and the sustainable-future transition.\n\nWe'd be glad to consider an original research article, review, or perspective from you. You can register and submit through our platform, and I'm happy to answer any questions on scope, format, or timelines — simply reply to this email.\n\nWarm regards,\nThe Editorial Team, ${journalName}`;
-        const { html, text } = renderPlainEmail(message, { siteUrl: PUBLIC_SITE_URL, interestedUrl: interestedUrl(lead.email) });
+        // Admin-provided message may already be HTML (from the editor); the default is plain text.
+        const bodyHtml = req.body?.message ? String(req.body.message) : textToHtml(message);
+        const { html, text } = renderPlainEmail(bodyHtml, { siteUrl: PUBLIC_SITE_URL, interestedUrl: interestedUrl(lead.email) });
         const result = await sendMail({ to: lead.email, subject, html, text, replyTo: notifyEmail() });
         if (result.ok) {
             await db.prepare(`UPDATE author_leads SET status = 'contacted' WHERE id = ? AND status = 'new'`).run(req.params.id);
