@@ -1,0 +1,30 @@
+name: Deploy to OCI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency: deploy-jms
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH (pull, build, restart)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          command_timeout: 20m
+          script: |
+            set -e
+            cd ~/greenoccasion-jms
+            git fetch origin main --depth 1
+            git reset --hard origin/main
+            npm ci
+            npm run build
+            sudo systemctl restart greenoccasion-jms
+            sleep 5
+            curl -fsS "http://localhost:3001/api/papers?journal=green-occasion" >/dev/null && echo "deploy OK"
