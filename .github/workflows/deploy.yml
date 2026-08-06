@@ -26,5 +26,8 @@ jobs:
             npm ci
             npm run build
             sudo systemctl restart greenoccasion-jms
-            sleep 5
-            curl -fsS "http://localhost:3001/api/papers?journal=green-occasion" >/dev/null && echo "deploy OK"
+            for i in $(seq 1 20); do
+              sleep 2
+              curl -fsS "http://localhost:3001/api/papers?journal=green-occasion" >/dev/null 2>&1 && { echo "deploy OK"; exit 0; }
+            done
+            echo "app did not become healthy in time"; sudo journalctl -u greenoccasion-jms -n 20 --no-pager; exit 1
