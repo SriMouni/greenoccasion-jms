@@ -6,7 +6,7 @@ const DEFAULT_MESSAGE_HTML =
   `Dear Researcher,<br><br>` +
   `I hope you're doing well.<br><br>` +
   `I'm reaching out to personally invite you to contribute to <b>The Carbon Review</b>, a new open-access, peer-reviewed journal launched as a <b>GreenOccasion</b> initiative.<br><br>` +
-  `At GreenOccasion, we believe that impactful sustainability research should be accessible to everyone—not limited by high publication costs or paywalls. Our mission is to provide researchers with a platform to publish their work at <b>no cost or only a minimal cost</b>, while ensuring that every published paper is freely available to readers around the world.<br><br>` +
+  `At GreenOccasion, we believe that impactful sustainability research should be accessible to everyone—not limited by high publication costs or paywalls. Our mission is to provide researchers with a platform to <b>publish their work at no cost or only a minimal cost</b>, while ensuring that every published paper is freely available to readers around the world.<br><br>` +
   `More importantly, we want to help great research reach <b>millions of people</b>, creating greater awareness and inspiring action on climate change, carbon reduction, pollution, and sustainability.<br><br>` +
   `As we prepare to launch, it would be an honour to have you as one of our founding authors. We welcome original research articles, reviews, and perspectives.<br><br>` +
   `If you're interested, simply reply to this email or click <b>"I'm Interested"</b>, and we'll share the submission details.<br><br>` +
